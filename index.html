@@ -1,0 +1,2118 @@
+<!-- PARSE GUIDE: All structured content lives in the single inline <script> at the end of <body>.
+DATA = JS array of card objects: {n:name, c:category, s:subgroup, o:origin, d:definition, u:use-when, w:watch-out, ul/wl:optional label overrides ("Spot it"/"Escape", "Takeaway"/"Nuance"), l:[[sourceLabel, url], ...]}.
+LINEAGE = {cardName: {y:year, p:[predecessorNames]}}; a "!" prefix on a predecessor means "challenges" (else "builds on"); edges always point earlier to later, so the graph is a DAG; names absent from LINEAGE are undated folklore.
+CATS = ordered category list; INTROS = {category: intro}. Card ids are slugified names; anchors are "card-" + slug.
+To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at runtime window.__canon = {edges:[[srcId,tgtId],...], misses:[]} exposes the resolved graph. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta id="metaTheme" name="theme-color" content="#f5f5f7">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="%230066cc"/><text x="16" y="22.5" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="white" text-anchor="middle">A</text></svg>'>
+<title>Arafat's Engineering Canon: Principles, Practices &amp; Patterns</title>
+<style>
+  :root {
+    font: 100%/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    color-scheme: light dark;
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: rgba(0,0,0,0.04);
+    --text: #1d1d1f;
+    --text-2: #55555b;
+    --text-3: #65656a;
+    --hairline: rgba(0,0,0,0.10);
+    --hairline-soft: rgba(0,0,0,0.06);
+    --accent: #0066cc;
+    --accent-tint: rgba(0,102,204,0.10);
+    --chrome: rgba(245,245,247,0.72);
+    --chrome-border: rgba(0,0,0,0.08);
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-hover: 0 4px 16px rgba(0,0,0,0.08);
+    --good: #1b7c33;
+    --warn: #a34a00;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000;
+      --surface: #1c1c1e;
+      --surface-2: rgba(255,255,255,0.08);
+      --text: #f5f5f7;
+      --text-2: #a1a1a6;
+      --text-3: #98989d;
+      --hairline: rgba(255,255,255,0.14);
+      --hairline-soft: rgba(255,255,255,0.08);
+      --accent: #2997ff;
+      --accent-tint: rgba(41,151,255,0.16);
+      --chrome: rgba(22,22,23,0.72);
+      --chrome-border: rgba(255,255,255,0.10);
+      --shadow: 0 1px 2px rgba(0,0,0,0.4);
+      --shadow-hover: 0 6px 20px rgba(0,0,0,0.5);
+      --good: #30d158;
+      --warn: #ff9f0a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: rgba(255,255,255,0.08);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #98989d;
+    --hairline: rgba(255,255,255,0.14);
+    --hairline-soft: rgba(255,255,255,0.08);
+    --accent: #2997ff;
+    --accent-tint: rgba(41,151,255,0.16);
+    --chrome: rgba(22,22,23,0.72);
+    --chrome-border: rgba(255,255,255,0.10);
+    --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-hover: 0 6px 20px rgba(0,0,0,0.5);
+    --good: #30d158;
+    --warn: #ff9f0a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  .hero h1, .section > h2, .card h4 { text-wrap: balance; }
+  .lede, .intro, .cintro, .card .def, .card .row, .hero .fine { text-wrap: pretty; }
+  /* Overscroll: vertical bounce is disabled where supported (overscroll-behavior-y).
+     The themed html background + color-scheme stay as the fallback, so any engine
+     that still rubber-bands reveals theme color, never white. */
+  html, body { overscroll-behavior-y: none; }
+  html { scroll-behavior: smooth; background: var(--bg); }
+  body { background: var(--bg); color: var(--text); letter-spacing: 0; }
+  .skip {
+    position: absolute; left: 1rem; top: -4rem; z-index: 100;
+    background: var(--surface); color: var(--accent); font-size: 0.875rem; font-weight: 600;
+    padding: 0.625rem 1rem; border-radius: 0.625rem; box-shadow: var(--shadow-hover);
+    text-decoration: none; transition: top 150ms ease;
+  }
+  .skip:focus { top: 0.75rem; }
+
+  /* ---------- translucent chrome ---------- */
+  .toolbar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--chrome);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--chrome-border);
+  }
+  .toolbar-inner {
+    max-width: 1200px; margin: 0 auto; padding: 0.75rem 1.5rem;
+    display: flex; flex-wrap: wrap; gap: 0.625rem; align-items: center;
+  }
+  .brand { font-size: 1.0625rem; font-weight: 700; letter-spacing: -0.014em; margin-right: auto; white-space: nowrap; }
+  .brand .tint { color: var(--accent); }
+
+  .search-wrap { position: relative; flex: 1 1 12rem; max-width: 420px; }
+  .search-wrap svg { position: absolute; left: 0.625rem; top: 50%; transform: translateY(-50%); width: 0.875rem; height: 0.875rem; color: var(--text-3); pointer-events: none; }
+  input[type="search"] {
+    width: 100%; font: inherit; font-size: 0.9375rem; color: var(--text);
+    background: var(--surface-2); border: 1px solid transparent; border-radius: 0.625rem;
+    padding: 0.4375rem 2.25rem 0.4375rem 2rem; outline: none; appearance: none; -webkit-appearance: none;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+  input[type="search"]::placeholder { color: var(--text-3); }
+  input[type="search"]:focus { border-color: var(--accent); background: var(--surface); }
+  .kbd {
+    position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+    font-size: 0.6875rem; color: var(--text-3); border: 1px solid var(--hairline); border-radius: 0.3125rem;
+    padding: 0 0.375rem; line-height: 1.4; background: var(--surface);
+  }
+
+  .chips { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 0.75rem; display: flex; gap: 0.375rem; overflow-x: auto; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    font: inherit; font-size: 0.8125rem; font-weight: 500; letter-spacing: 0;
+    color: var(--text); background: var(--surface-2); border: 1px solid transparent;
+    border-radius: 62.5rem; padding: 0.4375rem 0.875rem; min-height: 2.125rem; cursor: pointer; white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .chip:active { transform: scale(0.96); }
+  .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .chip .n { color: var(--text-2); font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
+  .chip[aria-pressed="true"] .n { color: inherit; opacity: 0.75; }
+  .chip:focus-visible, input:focus-visible, a:focus-visible, .skip:focus-visible, .icon-btn:focus-visible, .menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- appearance icon + menu ---------- */
+  .appearance { position: relative; }
+  .icon-btn {
+    width: 2.25rem; height: 2.25rem; display: grid; place-items: center;
+    background: var(--surface-2); color: var(--text); border: 0; border-radius: 62.5rem;
+    cursor: pointer; transition: background 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .icon-btn:active { transform: scale(0.96); }
+  .icon-btn .ic { width: 1rem; height: 1rem; display: none; }
+  .icon-btn[data-icon="auto"] .ic-auto { display: block; }
+  .icon-btn[data-icon="light"] .ic-light { display: block; }
+  .icon-btn[data-icon="dark"] .ic-dark { display: block; }
+
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 60; min-width: 8.5rem;
+    background: var(--chrome);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--chrome-border); border-radius: 0.875rem;
+    box-shadow: var(--shadow-hover); padding: 0.25rem;
+    transform-origin: top right;
+  }
+  .menu[hidden] { display: none; }
+  .menu.open { animation: menuIn 180ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @keyframes menuFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes menuIn {
+    from { opacity: 0; transform: scale(0.96) translateY(-0.25rem); }
+    to   { opacity: 1; transform: none; }
+  }
+  .menu button {
+    display: flex; align-items: center; gap: 0.5rem; width: 100%;
+    font: inherit; font-size: 0.875rem; color: var(--text); text-align: left;
+    background: transparent; border: 0; border-radius: 0.625rem;
+    padding: 0.4375rem 0.625rem; min-height: 2.125rem; cursor: pointer;
+  }
+  .menu button:focus-visible { background: var(--surface-2); }
+  .menu .check { width: 0.875rem; height: 0.875rem; visibility: hidden; color: var(--accent); }
+  .menu button[aria-checked="true"] .check { visibility: visible; }
+  .menu button[aria-checked="true"] { font-weight: 600; }
+
+  /* ---------- hero ---------- */
+  .hero { max-width: 1200px; margin: 0 auto; padding: 4.5rem 1.5rem 2.5rem; text-align: center; }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.75rem);
+    line-height: 1.05; letter-spacing: -0.02em; font-weight: 700;
+  }
+  .hero h1 em { font-style: normal; color: var(--text-3); }
+  .hero .lede { margin: 1rem auto 0; font-size: 1.125rem; line-height: 1.5; color: var(--text-2); max-width: 44rem; letter-spacing: -0.005em; }
+  .hero .fine { margin: 1rem auto 0; font-size: 0.8125rem; line-height: 1.55; color: var(--text-3); max-width: 44rem; }
+  .hero .fine b { font-weight: 600; color: var(--text-2); }
+
+  /* ---------- sections ---------- */
+  main { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+  .section { padding-top: 2.75rem; }
+  .section > h2 { font-size: 1.75rem; letter-spacing: -0.017em; line-height: 1.15; font-weight: 700; }
+  .section > .intro { margin-top: 0.5rem; margin-bottom: 1.25rem; font-size: 0.9375rem; color: var(--text-2); max-width: 46rem; }
+  .subhead { margin: 1.5rem 0 0.75rem; font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-3); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(21rem, 100%), 1fr)); gap: 0.875rem; }
+  @media (max-width: 480px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 1.125rem;
+    padding: 1.125rem 1.25rem 1rem; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 0.5rem;
+    transition: box-shadow 150ms ease, border-color 150ms ease;
+  }
+  .card h4 { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.012em; line-height: 1.25; }
+  .card .origin { font-size: 0.75rem; font-weight: 500; color: var(--text-3); letter-spacing: 0.005em; }
+  .card .def { font-size: 0.875rem; line-height: 1.5; color: var(--text); }
+  .card .row { font-size: 0.8125rem; line-height: 1.5; color: var(--text-2); }
+  .card .row b { font-weight: 600; letter-spacing: 0.01em; }
+  .card .row.use b { color: var(--good); }
+  .card .row.watch b { color: var(--warn); }
+  .card .links { margin-top: auto; padding-top: 0.625rem; border-top: 1px solid var(--hairline-soft); display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+  .card .empty { padding: 0 !important; margin: 0 !important; border: 0 !important; }
+  @supports (grid-template-rows: subgrid) {
+    .grid > .card { display: grid; grid-template-rows: subgrid; grid-row: span 7; row-gap: 0.5rem; }
+  }
+  .card .links a { font-size: 0.75rem; font-weight: 500; color: var(--accent); text-decoration: none; }
+  .card .links a:hover { text-decoration: underline; }
+
+  .empty { display: none; padding: 4rem 0; text-align: center; color: var(--text-3); font-size: 0.9375rem; }
+  .count-line { padding-top: 1.25rem; font-size: 0.8125rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  footer { border-top: 1px solid var(--hairline-soft); }
+  .foot-inner { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 3.5rem; font-size: 0.8125rem; line-height: 1.6; color: var(--text-3); max-width: 46rem; }
+  .foot-inner a { color: var(--accent); text-decoration: none; }
+  .foot-inner a:hover { text-decoration: underline; }
+  .foot-inner p + p { margin-top: 0.625rem; }
+
+  /* ---------- view toggle ---------- */
+  .seg { display: flex; gap: 0.125rem; background: var(--surface-2); border-radius: 62.5rem; padding: 0.1875rem; }
+  .seg button {
+    font: inherit; font-size: 0.8125rem; font-weight: 500; color: var(--text-2);
+    background: transparent; border: 0; border-radius: 62.5rem;
+    padding: 0.3125rem 0.6875rem; min-height: 1.75rem; cursor: pointer;
+    transition: background 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .seg button:active { transform: scale(0.97); }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- lineage rows on cards ---------- */
+  .card { scroll-margin-top: 8.5rem; }
+  .lineage { padding-top: 0.125rem; font-size: 0.75rem; line-height: 1.7; color: var(--text-3); }
+  .lineage .grp { display: block; }
+  .lineage b { font-weight: 600; letter-spacing: 0.01em; }
+  .lineage a.xref { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .lineage a.xref:hover { text-decoration: underline; }
+  .lineage a.xref.x { text-decoration: underline dashed; text-underline-offset: 2px; }
+  .lineage a.xref.x:hover { text-decoration: underline; }
+  .card.pulse { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- chrono view ---------- */
+  .cintro { margin: 1.5rem auto 0.5rem; font-size: 0.9375rem; color: var(--text-2); max-width: 38rem; text-align: center; }
+  .chrono { position: relative; padding: 0.5rem 0 3rem; max-width: 66rem; }
+  .cedges { position: absolute; top: 0; left: 0; pointer-events: none; }
+  .cedges path.ce { fill: none; stroke: var(--text-3); stroke-width: 1.25; opacity: 0.35; }
+  .cedges path.ce.x { stroke-dasharray: 4 4; }
+  .chrono.dimmed path.ce { opacity: 0.08; }
+  .cedges path.ce.lit { stroke: var(--accent); opacity: 1; stroke-width: 2; }
+  .cdecade { margin: 2.25rem 0 0.5rem 11.5rem; font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-3); }
+  .crow {
+    display: flex; align-items: center; gap: 0.625rem;
+    margin-left: 10.5rem; padding: 0.3125rem 0.625rem 0.3125rem 0;
+    min-height: 2.125rem; border-radius: 0.625rem; cursor: pointer;
+  }
+  .crow:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .crow .yr { width: 3rem; text-align: right; font-size: 0.75rem; color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
+  .crow .dot { width: 0.5625rem; height: 0.5625rem; border-radius: 50%; background: var(--text-3); flex: none; }
+  .crow .nm { font-size: 0.875rem; font-weight: 500; letter-spacing: -0.005em; flex: 0 1 auto; min-width: 0; }
+  .crow .ct { font-size: 0.6875rem; color: var(--text-3); white-space: nowrap; margin-right: auto; }
+  .crow .go { flex: none; margin-left: auto; font-size: 0.75rem; font-weight: 500; color: var(--accent); text-decoration: none; opacity: 0; white-space: nowrap; }
+  .crow:focus-within .go { opacity: 1; }
+  .chrono.dimmed .crow { opacity: 0.35; }
+  .chrono.dimmed .crow.lit, .chrono.dimmed .crow.sel { opacity: 1; }
+  .crow.lit .dot, .crow.sel .dot { background: var(--accent); }
+  .crow.sel { background: var(--accent-tint); }
+  @media (hover: none) {
+    .kbd { display: none; }
+    input[type="search"] { padding-right: 0.75rem; }
+    .crow .go { opacity: 1; }
+    .card:hover { transform: none; box-shadow: var(--shadow); }
+  }
+  @media (max-width: 400px) {
+    body { overflow-x: clip; }
+  }
+  @media (max-width: 700px) {
+    .toolbar-inner { padding: 0.5rem 1rem; }
+    .brand { font-size: 0.9375rem; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; order: 0; }
+    .brand .count { display: none; }
+    .appearance { order: 1; }
+    .search-wrap { order: 2; flex: 1 1 10rem; max-width: none; }
+    #viewSeg { order: 3; }
+    .seg button { padding: 0.25rem 0.5625rem; }
+    .chips { padding: 0 1rem 0.625rem; -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent); }
+    .chip { padding: 0.375rem 0.75rem; min-height: 2rem; }
+    .hero { padding-top: 3rem; }
+  }
+  @media (max-width: 480px) {
+    .card { padding: 1rem 1rem 0.875rem; }
+    .grid { gap: 0.75rem; }
+  }
+  @media (max-width: 640px) {
+    .crow { margin-left: 6.5rem; }
+    .cdecade { margin-left: 7.5rem; }
+    .crow { gap: 0.5rem; }
+    .crow .yr { width: 2.5rem; }
+    .crow .ct { display: none; }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover { box-shadow: var(--shadow-hover); }
+    .chip:not([aria-pressed="true"]):hover { background: var(--hairline); }
+    .chip[aria-pressed="true"]:hover { opacity: 0.85; }
+    .icon-btn:hover { background: var(--hairline); }
+    .menu button:hover { background: var(--surface-2); }
+    .crow:hover { background: var(--surface-2); }
+    .crow:hover .go { opacity: 1; }
+  }
+
+  /* ---------- accessibility & preferences ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .card, .chip, .icon-btn { transition: none !important; }
+    .card:hover { transform: none; }
+    .menu.open { animation: menuFade 150ms ease; }
+    .crow, .seg button { transition: none !important; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .toolbar, .menu { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (prefers-contrast: more) {
+    .card, .chip, .icon-btn, .menu { border: 1px solid var(--text-3); }
+    .toolbar { border-bottom-color: var(--text-3); }
+    .brand .tint { color: var(--text); }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="toolbar">
+  <div class="toolbar-inner">
+    <div class="brand">Arafat’s <span class="tint">Engineering Canon</span></div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.25" stroke="currentColor" stroke-width="1.5"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search principles, patterns, laws…" aria-label="Search the canon">
+      <span class="kbd" aria-hidden="true">/</span>
+    </div>
+    <div class="seg" role="group" aria-label="View" id="viewSeg">
+      <button type="button" data-v="list" aria-pressed="true">List</button>
+      <button type="button" data-v="chrono" aria-pressed="false">Chrono</button>
+    </div>
+    <div class="appearance" id="appearance">
+      <button id="themeBtn" class="icon-btn" type="button" data-icon="auto"
+              aria-haspopup="true" aria-expanded="false" aria-label="Appearance: Auto">
+        <svg class="ic ic-auto" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1.75 A6.25 6.25 0 0 0 8 14.25 Z" fill="currentColor"/>
+        </svg>
+        <svg class="ic ic-light" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 0.75v1.75M8 13.5v1.75M0.75 8h1.75M13.5 8h1.75M2.87 2.87l1.24 1.24M11.89 11.89l1.24 1.24M13.13 2.87l-1.24 1.24M4.11 11.89l-1.24 1.24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <svg class="ic ic-dark" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13.25 9.4A5.75 5.75 0 1 1 6.6 2.75a4.6 4.6 0 0 0 6.65 6.65Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="themeMenu" class="menu" role="menu" aria-label="Appearance" hidden>
+        <button type="button" role="menuitemradio" aria-checked="true" data-t="auto">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Auto</button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-t="light">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Light</button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-t="dark">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Dark</button>
+      </div>
+    </div>
+  </div>
+  <nav class="chips" id="chips" aria-label="Filter by category"></nav>
+</header>
+
+<section class="hero">
+  <h1>Every principle, practice &amp; pattern.<br><em>And when to reach for each.</em></h1>
+  <p class="lede">A curated field guide to software engineering’s named knowledge: foundational principles, laws and maxims, pragmatic tactics, defensive practices, design patterns classic and modern, architecture, delivery discipline, and the anti-patterns and rethinks that keep the canon honest. It spans Turing’s 1936 limit to the AI-era evidence of 2026, and lineage links weave every entry into one chronological graph.</p>
+  <p class="fine"><b>How to read this page.</b> Definitions and origins follow the linked sources, retrieved and verified 11 July 2026. The <b>Use when</b> / <b>Watch out</b> lines are editorial synthesis: judgment, not citation. Lineage links between cards are synthesis too, except where the later work cites the earlier one. Press <b>/</b> to search, filter with the category pills, and flip the List·Chrono toggle for the time-ordered graph view. No finite catalog is complete; this one aims to cover what practitioners actually name and reach for.</p>
+  <p class="count-line" id="countLine" aria-live="polite"></p>
+</section>
+
+<main id="main"></main>
+<p class="empty" id="empty" role="status">No matches. Try fewer words, or clear the category filter.</p>
+
+<footer>
+  <div class="foot-inner">
+    <p><b>Provenance.</b> Every card links its source; links were retrieved and checked on 11 July 2026. Quoted definitions belong to their authors. Guidance lines are synthesis and are labeled as such; treat them as a starting point for judgment, not a substitute for it.</p>
+    <p>© 2026 Arafat Husayn. All rights reserved.</p>
+  </div>
+</footer>
+
+<script>
+"use strict";
+
+const CATS = [
+  "Principles",
+  "Laws & Maxims",
+  "Pragmatism & Tactics",
+  "Types & Data",
+  "Errors & Resilience",
+  "Testing",
+  "Security",
+  "Design Patterns",
+  "Architecture",
+  "Delivery & Ops",
+  "Performance & Concurrency",
+  "Anti-Patterns & Rethinks"
+];
+
+const INTROS = {
+  "Principles": "The load-bearing ideas beneath everything else. Reach for a principle when you feel friction (duplication, rigidity, surprise) and let it name the fix. Applied speculatively, most of them invert into over-engineering.",
+  "Laws & Maxims": "Named observations about how software and the people who build it actually behave. Laws don’t tell you what to do; they tell you what will happen anyway, so you can design for it.",
+  "Pragmatism & Tactics": "Judgment under real constraints: the Pragmatic Programmer’s craft ethos, XP’s small brave moves, and the process wisdom teams learn the hard way. Perfection isn’t the goal here; deliberate, reversible progress is.",
+  "Types & Data": "Make the compiler carry proof. Model data so that wrong states don’t exist, absence is explicit, and raw input is converted into trustworthy types exactly once, at the boundary.",
+  "Errors & Resilience": "Assume failure is normal. Expected failures travel as values; broken invariants stop the program near the cause; every dependency is treated as slow, flaky, and occasionally down.",
+  "Testing": "Test to buy confidence per unit of maintenance. Shape matters less than properties: deterministic, hermetic, mostly at the integration boundary, generated where inputs are wide.",
+  "Security": "Deny by default and assume hostile input. Most of this section is fifty years old and still routinely violated, which is exactly why it stays in the canon.",
+  "Design Patterns": "The classic 1994 Gamma–Helm–Johnson–Vlissides vocabulary, plus what came after it: in modern languages many of the 23 dissolve into functions, modules, and types, and newer catalogs (distributed systems, messaging, reactivity) cover the problems that hurt today. A pattern is a vocabulary word, not a goal: apply one when its exact tension appears, never to appear designed.",
+  "Architecture": "How systems are shaped: domain logic, persistence, service boundaries, and the distributed patterns that keep many machines coherent. Every pattern here trades simplicity for a specific capability; pay the complexity only when its problem has actually arrived.",
+  "Delivery & Ops": "How working software keeps working: small safe changes, evidence-based delivery metrics, deliberate documentation, and operations you can observe.",
+  "Performance & Concurrency": "Measure before optimizing, bound what you parallelize, and prefer structure over cleverness in concurrent code.",
+  "Anti-Patterns & Rethinks": "Named failure modes, and the places where the folklore contradicts its own sources. Anti-patterns are solutions that recur despite their negative consequences; rethinks are modern discoveries and re-readings that challenge the status quo. Both earn a card the same way: by showing up in real systems."
+};
+
+/* Each entry: n name · c category · s subgroup · o origin · d definition ·
+   u "use when" (synthesis) · w "watch out" (synthesis) · l [[label,url],…] */
+const DATA = [
+/* ================= PRINCIPLES ================= */
+{n:"Single Responsibility Principle", c:"Principles", s:"SOLID", o:"Robert C. Martin · 2000 · acronym coined by Michael Feathers (~2004)",
+ d:"“There should never be more than one reason for a class to change.” Each module answers to one actor, one axis of change.",
+ u:"a class keeps changing for unrelated reasons, or two teams keep editing the same file.",
+ w:"over-splitting into anemic fragments; ‘one responsibility’ means one reason to change, not one method.",
+ l:[["SOLID · Wikipedia","https://en.wikipedia.org/wiki/SOLID"]]},
+{n:"Open–Closed Principle", c:"Principles", s:"SOLID", o:"Bertrand Meyer 1988 · restated by Robert C. Martin 2000",
+ d:"“Software entities should be open for extension, but closed for modification”: add behavior via new code, not by editing stable code.",
+ u:"a module has stabilized and variations keep arriving; expose an extension point instead of another if-branch.",
+ w:"speculative extension points nobody uses; YAGNI applies to abstractions too.",
+ l:[["SOLID · Wikipedia","https://en.wikipedia.org/wiki/SOLID"]]},
+{n:"Liskov Substitution Principle", c:"Principles", s:"SOLID", o:"Barbara Liskov 1987 · in SOLID via Martin 2000",
+ d:"Code using a base type must work, unknowingly, with any subtype; subtypes may not strengthen preconditions or weaken postconditions.",
+ u:"designing any inheritance or interface hierarchy; it is the test for whether ‘is-a’ is real.",
+ w:"the classic square-extends-rectangle trap; if a subtype throws where the parent didn’t, it isn’t a subtype.",
+ l:[["SOLID · Wikipedia","https://en.wikipedia.org/wiki/SOLID"]]},
+{n:"Interface Segregation Principle", c:"Principles", s:"SOLID", o:"Robert C. Martin · 2000",
+ d:"“Clients should not be forced to depend upon interfaces that they do not use”: many small role interfaces beat one fat one.",
+ u:"implementers stub out methods with ‘not supported’, or a change in one client’s methods recompiles all of them.",
+ w:"an interface per method is noise; segregate along real client roles.",
+ l:[["SOLID · Wikipedia","https://en.wikipedia.org/wiki/SOLID"]]},
+{n:"Dependency Inversion Principle", c:"Principles", s:"SOLID", o:"Robert C. Martin · 2000",
+ d:"High-level policy and low-level detail both depend on abstractions; policy never imports detail directly.",
+ u:"business logic needs testing without databases, queues, or clocks; invert so the core owns the interface.",
+ w:"don’t confuse with dependency injection (a technique); DIP is about which direction the source dependency points.",
+ l:[["SOLID · Wikipedia","https://en.wikipedia.org/wiki/SOLID"]]},
+{n:"DRY: Don’t Repeat Yourself", c:"Principles", s:"Simplicity", o:"Hunt & Thomas · The Pragmatic Programmer · 1999",
+ d:"Every piece of knowledge should have a single, authoritative representation in the system.",
+ u:"the same business rule lives in two places and they have already drifted once.",
+ w:"DRY is about knowledge, not lines; deduplicating code that merely looks alike couples things that change separately.",
+ l:[["DRY · Wikipedia","https://en.wikipedia.org/wiki/Don%27t_repeat_yourself"]]},
+{n:"KISS: Keep It Simple", c:"Principles", s:"Simplicity", o:"Folk engineering maxim · framed for software in Raymond’s Art of Unix Programming (2003)",
+ d:"Prefer the simplest design that meets the need; complexity is spent, not free.",
+ u:"choosing between a working boring design and a clever general one: default to boring.",
+ w:"simple for the reader, not the writer; a terse one-liner can be the opposite of simple.",
+ l:[["Unix philosophy · Wikipedia","https://en.wikipedia.org/wiki/Unix_philosophy"]]},
+{n:"YAGNI: You Aren’t Gonna Need It", c:"Principles", s:"Simplicity", o:"Extreme Programming (Beck/Jeffries) · documented by Fowler",
+ d:"Don’t build capability for presumed future needs; build it when the need is real, and design so it can be added later.",
+ u:"someone says ‘while we’re in here, let’s also support…’; cost of carry beats cost of later addition surprisingly often.",
+ w:"YAGNI covers features and flexibility, not quality; it is not a license to skip tests or error handling.",
+ l:[["Yagni · Fowler bliki","https://martinfowler.com/bliki/Yagni.html"],["YAGNI · Wikipedia","https://en.wikipedia.org/wiki/You_aren't_gonna_need_it"]]},
+{n:"AHA: Avoid Hasty Abstractions", c:"Principles", s:"Simplicity", o:"Kent C. Dodds · after Sandi Metz’s “wrong abstraction”",
+ d:"Prefer duplication over the wrong abstraction; optimize for change first, and abstract only when the shape of the commonality is proven.",
+ u:"tempted to unify two similar-looking code paths that serve different masters; wait for the third case.",
+ w:"the counterweight to DRY, not its replacement; genuinely shared knowledge should still live once.",
+ l:[["AHA Programming · Dodds","https://kentcdodds.com/blog/aha-programming"]]},
+{n:"Rule of Three", c:"Principles", s:"Simplicity", o:"Refactoring folklore · recorded in Fowler’s Refactoring",
+ d:"Tolerate a duplication twice; on the third occurrence, refactor; three real uses reveal the true shape of an abstraction.",
+ u:"deciding the moment to extract a helper, a base type, or a service.",
+ w:"three trivial repeats of one line may never need extracting; three copies of a business rule needed extracting yesterday.",
+ l:[["Refactoring · Fowler","https://martinfowler.com/books/refactoring.html"]]},
+{n:"Composition over Inheritance", c:"Principles", s:"Object design", o:"GoF · Design Patterns · 1994",
+ d:"“Favor object composition over class inheritance”: assemble behavior from parts held by reference rather than inherited from parents.",
+ u:"behavior needs mixing, swapping, or configuring at runtime; inheritance would fork a combinatorial class tree.",
+ w:"inheritance is still right for true, stable is-a relationships with LSP intact.",
+ l:[["Design principles from Design Patterns · Gamma interview","https://www.artima.com/articles/design-principles-from-design-patterns"],["python-patterns.guide","https://python-patterns.guide/gang-of-four/composition-over-inheritance/"]]},
+{n:"Program to an Interface, not an Implementation", c:"Principles", s:"Object design", o:"GoF · Design Patterns · 1994",
+ d:"Depend on the contract a thing exposes, never on the concrete type behind it; callers stay ignorant of construction and class.",
+ u:"any seam you may need to substitute: persistence, transport, formatting, time.",
+ w:"interfaces with a single forever-only implementation are ceremony; add the seam when a second implementation (including a fake) exists.",
+ l:[["Design principles from Design Patterns · Gamma interview","https://www.artima.com/articles/design-principles-from-design-patterns"]]},
+{n:"Command–Query Separation", c:"Principles", s:"Object design", o:"Bertrand Meyer · Object-Oriented Software Construction",
+ d:"Queries return a result and change nothing observable; commands change state and return nothing. Asking a question shouldn’t change the answer.",
+ u:"designing any API; it makes reads freely composable and mutations easy to audit.",
+ w:"pragmatic exceptions exist (pop, compare-and-swap, id-returning inserts); deviate deliberately, not accidentally.",
+ l:[["CQS · Fowler bliki","https://martinfowler.com/bliki/CommandQuerySeparation.html"]]},
+{n:"Law of Demeter", c:"Principles", s:"Object design", o:"Karl Lieberherr et al. · Northeastern · 1987",
+ d:"Principle of least knowledge: talk only to your immediate collaborators, no reaching through objects (a.b().c().d()).",
+ u:"train-wreck call chains appear, or a change in one class ripples through strangers that merely traversed it.",
+ w:"doesn’t apply to data (JSON, DTOs, fluent builders); it’s about behavioral coupling, not dots.",
+ l:[["Law of Demeter · Lieberherr","https://ccs.neu.edu/home/lieber/LoD.html"],["Wikipedia","https://en.wikipedia.org/wiki/Law_of_Demeter"]]},
+{n:"Principle of Least Astonishment", c:"Principles", s:"Object design", o:"Long-standing usability/API maxim",
+ d:"A component should behave the way its name, signature, and context lead people to expect; surprise is a defect.",
+ u:"naming things, choosing defaults, designing side effects: if users would be astonished, redesign.",
+ w:"the audience defines astonishment: match the conventions of your language and domain, not your private taste.",
+ l:[["Wikipedia","https://en.wikipedia.org/wiki/Principle_of_least_surprise"],["DevIQ","https://deviq.com/principles/principle-of-least-astonishment/"]]},
+{n:"Information Hiding", c:"Principles", s:"Modularity", o:"David Parnas · CACM · 1972",
+ d:"Decompose systems around difficult or likely-to-change design decisions and hide each inside a module, not around the steps of a flowchart.",
+ u:"drawing any module boundary: ask ‘what decision does this hide?’, not ‘what step does this perform?’.",
+ w:"a module whose internals every caller knows hides nothing, whatever its folder structure says.",
+ l:[["Parnas 1972 · ACM","https://dl.acm.org/doi/10.1145/361598.361623"],["The Morning Paper summary","https://blog.acolyer.org/2016/09/05/on-the-criteria-to-be-used-in-decomposing-systems-into-modules/"]]},
+{n:"High Cohesion, Low Coupling", c:"Principles", s:"Modularity", o:"Stevens, Myers & Constantine · Structured Design · 1974",
+ d:"Keep related things together (cohesion) and unrelated things apart (coupling); the oldest quantitative lens on module quality.",
+ u:"evaluating any decomposition: classes, services, teams; most architecture advice is this principle wearing a costume.",
+ w:"optimizing either alone is easy and useless; one giant module has perfect coupling and terrible cohesion.",
+ l:[["A brief history of coupling & cohesion","https://mrpicky.dev/a-brief-history-of-coupling-and-cohesion/"],["Coupling · Wikipedia","https://en.wikipedia.org/wiki/Coupling_(computer_programming)"]]},
+{n:"Deep Modules", c:"Principles", s:"Modularity", o:"John Ousterhout · A Philosophy of Software Design · 2018",
+ d:"The best modules have simple interfaces hiding substantial functionality, like Unix file I/O: five calls masking enormous machinery.",
+ u:"judging a design: prefer one deep module over many shallow pass-through classes and wrappers.",
+ w:"‘classitis’: decomposition that multiplies interfaces faster than it hides complexity and makes systems shallower.",
+ l:[["Ousterhout talk notes","https://alex-ii.github.io/notes/2018/10/07/philosophy_of_software_design.html"],["Pragmatic Engineer interview","https://newsletter.pragmaticengineer.com/p/the-philosophy-of-software-design"]]},
+{n:"Easy to Use Correctly, Hard to Use Incorrectly", c:"Principles", s:"Modularity", o:"Scott Meyers · IEEE Software · 2004",
+ d:"Meyers’ candidate for the most important design guideline: interfaces should make the right usage the path of least resistance and misuse a compile error.",
+ u:"every public API: constrain types, order, and defaults so mistakes don’t fit through the signature.",
+ w:"documentation is not a fix for an interface that invites misuse.",
+ l:[["The Most Important Design Guideline · Meyers","https://www.aristeia.com/Papers/IEEE_Software_JulAug_2004_revised.htm"]]},
+{n:"Design by Contract", c:"Principles", s:"Modularity", o:"Bertrand Meyer · Eiffel · 1980s",
+ d:"Specify each routine’s preconditions, postconditions, and class invariants as executable obligations between caller and callee.",
+ u:"correctness-critical modules; contracts double as documentation, runtime checks, and test oracles.",
+ w:"checks that vanish in production remove the safety net exactly where it matters; decide deliberately what stays on.",
+ l:[["Design by Contract · Eiffel","https://www.eiffel.org/doc/eiffel/ET-_Design_by_Contract_(tm),_Assertions_and_Exceptions"],["Wikipedia","https://en.wikipedia.org/wiki/Design_by_contract"]]},
+{n:"GRASP: Nine Responsibility Principles", c:"Principles", s:"Modularity", o:"Craig Larman · Applying UML and Patterns · 1997",
+ d:"Information Expert, Creator, Controller, Low Coupling, High Cohesion, Polymorphism, Indirection, Pure Fabrication, Protected Variations: a checklist for assigning responsibilities to classes.",
+ u:"deciding where behavior lives: give the job to whoever has the information (Expert), and wrap instability behind interfaces (Protected Variations).",
+ w:"a thinking tool, not an architecture; don’t manufacture Controllers and Fabrications where a function would do.",
+ l:[["GRASP · Wikipedia","https://en.wikipedia.org/wiki/GRASP_(object-oriented_design)"]]},
+{n:"The Unix Philosophy", c:"Principles", s:"Composition", o:"Doug McIlroy · Bell Labs · documented 1978",
+ d:"“Write programs that do one thing and do it well. Write programs to work together. Write programs to handle text streams, because that is a universal interface.”",
+ u:"CLI tools, pipelines, microservices: anywhere small sharp tools composed loosely beat one integrated giant.",
+ w:"composition pushes complexity into the glue; a pipeline of ten clever filters is its own big program.",
+ l:[["Unix philosophy · Wikipedia","https://en.wikipedia.org/wiki/Unix_philosophy"]]},
+{n:"The Zen of Python", c:"Principles", s:"Composition", o:"Tim Peters · PEP 20 · 2004",
+ d:"Nineteen aphorisms: explicit is better than implicit, simple is better than complex, errors should never pass silently, there should be one obvious way to do it.",
+ u:"language-agnostic taste calibration; ‘errors should never pass silently’ alone justifies the read.",
+ w:"aphorisms conflict by design; ‘practicality beats purity’ is in there to keep the rest honest.",
+ l:[["PEP 20","https://peps.python.org/pep-0020/"]]},
+
+/* ================= LAWS & MAXIMS ================= */
+{n:"Turing's Limit (Undecidability)", c:"Laws & Maxims", s:"Foundations", o:"Alan Turing · “On Computable Numbers” · 1936",
+ d:"Turing's machines and the halting problem: no general procedure can decide what an arbitrary program will do. Every static analyzer, dead-code detector, and bug-finder lives under this ceiling.",
+ u:"whenever a tool promises to find all bugs or prove arbitrary properties: the limit is mathematical, so real tools approximate, restrict the language, or ask you for annotations.",
+ w:"undecidable in general is not hopeless in practice: bounded loops and restricted idioms (see Power of 10) exist precisely to make analysis tractable.",
+ l:[["On Computable Numbers (PDF)","https://www.cs.virginia.edu/~robins/Turing_Paper_1936.pdf"],["Halting problem · Wikipedia","https://en.wikipedia.org/wiki/Halting_problem"]]},
+{n:"The Stored-Program Computer", c:"Laws & Maxims", s:"Foundations", o:"John von Neumann · First Draft of a Report on the EDVAC · 1945",
+ d:"Program and data share one memory: code is data. The architecture beneath compilers, interpreters, and serialization, and equally beneath every injection attack ever written.",
+ u:"code-is-data cuts both ways: it enables toolchains and metaprogramming, and it is why untrusted data must never be allowed to become executable.",
+ w:"the famous draft's sole authorship is contested (Eckert and Mauchly's engineering fed it); the same architecture also named the CPU-memory bottleneck.",
+ l:[["First Draft on the EDVAC · Wikipedia","https://en.wikipedia.org/wiki/First_Draft_of_a_Report_on_the_EDVAC"],["Von Neumann architecture","https://en.wikipedia.org/wiki/Von_Neumann_architecture"]]},
+{n:"Information Theory", c:"Laws & Maxims", s:"Foundations", o:"Claude Shannon · A Mathematical Theory of Communication · 1948",
+ d:"Shannon quantified information (the bit), channel capacity, and redundancy: the mathematics beneath compression, checksums, hashing, and every noisy channel your systems talk over.",
+ u:"reasoning about compression limits, checksum strength, and the entropy of identifiers and secrets; password strength is Shannon entropy wearing a product name.",
+ w:"information is not meaning: the theory prices bits, not sense, and nothing in it says your log pipeline carries anything worth knowing.",
+ l:[["A Mathematical Theory of Communication (PDF)","https://people.math.harvard.edu/~ctm/home/text/others/shannon/entropy/entropy.pdf"],["Wikipedia","https://en.wikipedia.org/wiki/A_Mathematical_Theory_of_Communication"]]},
+{n:"Design for Error (Hamming Codes)", c:"Laws & Maxims", s:"Foundations", o:"Richard Hamming · Bell System Technical Journal · 1950",
+ d:"The first error-correcting codes: assume corruption will happen and add structured redundancy so the system detects and repairs it in flight. The defensive stance, decades before defensive programming had a name.",
+ u:"the ancestor mindset of ECC memory, checksums, RAID, and retries: budget redundancy in proportion to what you cannot afford to lose.",
+ w:"redundancy corrects noise, not bugs: a bad write replicated three times is three bad copies, which is why replication is not backup.",
+ l:[["Error Detecting and Error Correcting Codes (PDF)","https://zoo.cs.yale.edu/classes/cs323/doc/Hamming.pdf"],["Hamming code · Wikipedia","https://en.wikipedia.org/wiki/Hamming_code"]]},
+{n:"Another Level of Indirection", c:"Laws & Maxims", s:"Foundations", o:"Attributed to David Wheeler · Cambridge",
+ d:"“All problems in computer science can be solved by another level of indirection”: the folklore fundamental theorem of software engineering, with its equally canonical corollary about the problem of too many levels of indirection.",
+ u:"pointers, virtual dispatch, adapters, gateways, dependency injection: every decoupling trick on this page is an indirection with a better name.",
+ w:"each level costs comprehension and latency; indirection you cannot justify is architecture-flavored debt.",
+ l:[["Indirection · Wikipedia","https://en.wikipedia.org/wiki/Indirection"],["David Wheeler · Wikipedia","https://en.wikipedia.org/wiki/David_Wheeler_(computer_scientist)"]]},
+{n:"Conway’s Law", c:"Laws & Maxims", s:"People & organizations", o:"Melvin Conway · “How Do Committees Invent?” · 1968",
+ d:"Organizations design systems that mirror their communication structures; the org chart ships.",
+ u:"planning architecture: align team boundaries with intended service boundaries (the ‘inverse Conway maneuver’), or the system will realign itself.",
+ w:"it cuts both ways: reorganizing without re-architecting leaves the old structure fossilized in code.",
+ l:[["Conway’s Law · melconway.com","https://www.melconway.com/Home/Conways_Law.html"],["Wikipedia","https://en.wikipedia.org/wiki/Conway%27s_law"]]},
+{n:"Hyrum’s Law", c:"Laws & Maxims", s:"People & organizations", o:"Hyrum Wright · Google · named by Titus Winters",
+ d:"“With a sufficient number of users of an API, it does not matter what you promise in the contract: all observable behaviors of your system will be depended on by somebody.”",
+ u:"changing anything observable (timing, ordering, error text) on a widely used surface; assume someone depends on it.",
+ w:"not an excuse to freeze forever: it argues for deliberate contracts, deprecation windows, and tooling to find dependents.",
+ l:[["hyrumslaw.com","https://www.hyrumslaw.com/"]]},
+{n:"Brooks: No Silver Bullet", c:"Laws & Maxims", s:"People & organizations", o:"Fred Brooks · 1986",
+ d:"Software difficulty divides into essence (the problem’s inherent complexity) and accident (our tools’ friction); no single technique will yield an order-of-magnitude gain, because essence remains.",
+ u:"evaluating any tool or method promising 10×: ask whether it attacks essence or only accident.",
+ w:"written before modern tooling, still holding; but ‘no silver bullet’ is not ‘no progress’; accidents are worth removing.",
+ l:[["No Silver Bullet · Wikipedia","https://en.wikipedia.org/wiki/No_Silver_Bullet"],["Original paper (PDF)","https://www.cs.unc.edu/techreports/86-020.pdf"]]},
+{n:"Gall’s Law", c:"Laws & Maxims", s:"Systems", o:"John Gall · Systemantics · 1975",
+ d:"“A complex system that works is invariably found to have evolved from a simple system that worked… A complex system designed from scratch never works.”",
+ u:"tempted by a big-bang design or rewrite: start with the smallest working system and grow it.",
+ w:"the corollary bites rewrites hardest; see Strangler Fig for the escape hatch.",
+ l:[["John Gall · Wikiquote","https://en.wikiquote.org/wiki/John_Gall"],["Systemantics · Wikipedia","https://en.wikipedia.org/wiki/Systemantics"]]},
+{n:"Postel’s Law and Its Modern Reversal", c:"Laws & Maxims", s:"Systems", o:"Jon Postel · RFC 761 · revisited by IAB RFC 9413 (2023)",
+ d:"“Be conservative in what you send, liberal in what you accept”, now formally reconsidered: RFC 9413 finds liberal acceptance breeds a “pathological feedback cycle” where bugs entrench into de-facto protocol.",
+ u:"reading old advice: today, prefer strict validation with clear errors (“virtuous intolerance”) and actively maintained specs.",
+ w:"strictness needs a feedback channel: reject loudly and legibly, or you just moved the pain.",
+ l:[["RFC 9413","https://www.rfc-editor.org/rfc/rfc9413.html"],["Robustness principle · Wikipedia","https://en.wikipedia.org/wiki/Robustness_principle"]]},
+{n:"CAP Theorem", c:"Laws & Maxims", s:"Systems", o:"Eric Brewer conjecture 2000 · proved by Gilbert & Lynch 2002",
+ d:"Under a network partition, a distributed system must sacrifice either consistency or availability; you cannot have all three of C, A, P.",
+ u:"choosing a datastore or replication mode: decide per operation what yields during partitions: stale reads or refused writes.",
+ w:"partitions are rare; the everyday trade-off is latency vs. consistency. ‘CP vs AP’ labels oversimplify real systems.",
+ l:[["Gilbert & Lynch proof (PDF)","https://www.cs.princeton.edu/courses/archive/spr22/cos418/papers/cap.pdf"],["CAP · Wikipedia","https://en.wikipedia.org/wiki/CAP_theorem"]]},
+{n:"The Eight Fallacies of Distributed Computing", c:"Laws & Maxims", s:"Systems", o:"Peter Deutsch et al. · Sun Microsystems · 1994",
+ d:"The network is reliable; latency is zero; bandwidth is infinite; the network is secure; topology doesn’t change; there is one administrator; transport cost is zero; the network is homogeneous. All false.",
+ u:"reviewing any design with a network hop in it; each fallacy maps to a required defense (timeouts, retries, idempotency, TLS…).",
+ w:"the fallacies apply inside ‘one’ system too: microservices turn function calls into all eight problems.",
+ l:[["Wikipedia","https://en.wikipedia.org/wiki/Fallacies_of_distributed_computing"],["Unpacking the fallacies · Sookocheff","https://sookocheff.com/post/distributed-systems/unpacking-the-eight-fallacies-of-distributed-computing/"]]},
+{n:"Hoare’s Billion-Dollar Mistake", c:"Laws & Maxims", s:"Systems", o:"Tony Hoare · QCon London · 2009",
+ d:"Hoare calls his 1965 invention of the null reference “my billion-dollar mistake”, a decade-spanning source of crashes and vulnerabilities.",
+ u:"motivation for Option/Maybe types, null-safety analysis, and non-nullable-by-default languages.",
+ w:"banning null locally while accepting it at boundaries just relocates the crash; convert at the edge.",
+ l:[["InfoQ talk","https://www.infoq.com/presentations/Null-References-The-Billion-Dollar-Mistake-Tony-Hoare/"]]},
+{n:"Knuth: Premature Optimization", c:"Laws & Maxims", s:"Craft", o:"Donald Knuth · “Structured Programming with go to Statements” · 1974",
+ d:"“Premature optimization is the root of all evil”. In context: forget small efficiencies ~97% of the time, but do not pass up the critical 3%, found by measurement.",
+ u:"resisting micro-optimization before profiling; and equally, justifying real optimization once a profile names the hot path.",
+ w:"the quote is not an amnesty for wasteful architecture; asymptotics and data layout chosen up front are design, not premature tuning.",
+ l:[["Revisiting Knuth’s paper · Probably Dance","https://probablydance.com/2025/06/19/revisiting-knuths-premature-optimization-paper/"],["Context · hlopko","https://hlopko.com/2019/08/03/premature-optimization/"]]},
+{n:"Make It Work, Make It Right, Make It Fast", c:"Laws & Maxims", s:"Craft", o:"Attributed to Kent Beck · older roots in the folklore",
+ d:"Sequence your effort: first a working thing, then a clean correct thing, then (only if needed and measured) a fast thing.",
+ u:"a standing antidote to designing for performance before correctness, or polishing before anything works end-to-end.",
+ w:"‘make it work’ is not license to ship the prototype; the second step is the point.",
+ l:[["Origin discussion · Bourguignon","https://www.timbourguignon.fr/make-it-fast/"],["Agile in a Flash","https://agileinaflash.blogspot.com/2009/03/make-it-work-make-it-right-make-it-fast.html"]]},
+{n:"Worse Is Better", c:"Laws & Maxims", s:"Craft", o:"Richard P. Gabriel · 1989–91",
+ d:"Gabriel’s observation that ‘New Jersey style’ (simple implementation, even at some interface cost) spreads and survives better than ‘MIT style’ perfect design.",
+ u:"strategy calls: shipping a simple 80% solution that can spread beats polishing a complete one that can’t.",
+ w:"a description of evolutionary dynamics, not a quality target; Gabriel himself argued both sides for years.",
+ l:[["Worse Is Better · Dreamsongs","https://dreamsongs.com/WorseIsBetter.html"],["Wikipedia","https://en.wikipedia.org/wiki/Worse_is_better"]]},
+{n:"Choose Boring Technology", c:"Laws & Maxims", s:"Craft", o:"Dan McKinley · 2015",
+ d:"Every team holds a handful of ‘innovation tokens’; spend them on your core problem and choose well-understood, operationally boring tech for everything else.",
+ u:"picking databases, queues, frameworks: the failure modes of boring tech are documented; novel tech fails novelly at 3 a.m.",
+ w:"boring ≠ obsolete; the point is known failure modes, and tokens exist to be spent, deliberately.",
+ l:[["Choose Boring Technology · McKinley","https://mcfunley.com/choose-boring-technology"]]},
+{n:"Chesterton’s Fence", c:"Laws & Maxims", s:"Craft", o:"G. K. Chesterton’s parable · adopted by software",
+ d:"Don’t remove a fence until you know why it was put up: code you can’t explain is not yet code you may delete.",
+ u:"before deleting ‘dead’ checks, odd sleeps, weird special cases: git blame and tests first, then remove with confidence.",
+ w:"not a ban on cleanup; once you know why it exists (or that the reason is gone), remove it boldly.",
+ l:[["Symflower","https://symflower.com/en/company/blog/2022/programming-principle-chestertons-fence/"],["Joseph Woodward","https://josephwoodward.co.uk/2020/04/software-the-chestertons-fence-principle"]]},
+{n:"The Two Hard Things", c:"Laws & Maxims", s:"Craft", o:"Phil Karlton · via Fowler’s bliki",
+ d:"“There are only two hard things in Computer Science: cache invalidation and naming things.” The joke endures because both are about keeping two representations honestly in sync.",
+ u:"as a smell detector: every cache you add is a consistency problem you now own; every bad name is a small lie readers must unlearn.",
+ w:"the extended joke adds off-by-one errors; treat all three as budget items, not punchlines.",
+ l:[["Two Hard Things · Fowler","https://www.martinfowler.com/bliki/TwoHardThings.html"],["karlton.org","https://www.karlton.org/2017/12/naming-things-hard/"]]},
+/* ================= TYPES & DATA ================= */
+{n:"Parse, Don’t Validate", c:"Types & Data", s:"Boundaries in the type system", o:"Alexis King · 2019",
+ d:"Validation checks a condition and discards the knowledge; parsing preserves it in the type. Convert raw input into a precise type once, at the boundary, and let only parsed types flow inward.",
+ u:"any external input: JSON, env vars, DB rows, user forms; downstream code should never re-check what a type already proves.",
+ w:"if a function accepts a raw type and ‘trusts’ it, the proof burden silently returns.",
+ l:[["Parse, don’t validate · King","https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/"]]},
+{n:"Make Illegal States Unrepresentable", c:"Types & Data", s:"Boundaries in the type system", o:"Yaron Minsky · Effective ML",
+ d:"Model data with sums and products so that invalid combinations simply cannot be constructed; the compiler enforces the invariant forever.",
+ u:"fields that are ‘only valid together’ or state flags that exclude each other; replace booleans-plus-comments with a union.",
+ w:"total unrepresentability can over-rigidify evolving domains; keep escape hatches at the edges, not the core.",
+ l:[["DevIQ","https://deviq.com/principles/make-illegal-states-unrepresentable/"],["Minsky · lecture notes","https://gist.github.com/pwm/fcafeaa031553d29166d369f4e0d58a8"]]},
+{n:"Model Absence Explicitly (Option/Maybe)", c:"Types & Data", s:"Boundaries in the type system", o:"Response to Hoare’s null (2009 mea culpa)",
+ d:"Represent ‘may be missing’ as a first-class type the compiler forces you to unwrap, instead of a null that detonates at a distance.",
+ u:"everywhere a value is optional by design; the signature should say so.",
+ w:"Option-of-Option and optional-everything signal unclear domain rules, not safety.",
+ l:[["Hoare · Billion Dollar Mistake","https://www.infoq.com/presentations/Null-References-The-Billion-Dollar-Mistake-Tony-Hoare/"]]},
+{n:"Branded / Opaque Types", c:"Types & Data", s:"Boundaries in the type system", o:"Nominal-typing technique · TS community",
+ d:"Give semantically distinct values distinct types (UserId, not string; Cents, not number) so mix-ups fail at compile time.",
+ u:"IDs, money, units, sanitized strings, validated emails; anywhere two ‘strings’ must never swap.",
+ w:"brand at the boundary via smart constructors, or the brand is a costume.",
+ l:[["Branded Types · Learning TypeScript","https://www.learningtypescript.com/articles/branded-types"]]},
+{n:"Smart Constructors", c:"Types & Data", s:"Boundaries in the type system", o:"Typed-FP technique · via Giulio Canti",
+ d:"Make the only way to build a value pass through validation, so possession of the type is proof of its invariants.",
+ u:"pairs with branded types and parse-don’t-validate as the enforcement mechanism.",
+ w:"keep a single constructor path; a public unchecked constructor next to a smart one defeats both.",
+ l:[["Smart constructors · Canti","https://dev.to/gcanti/functional-design-smart-constructors-14nb"]]},
+{n:"Total Functions", c:"Types & Data", s:"Boundaries in the type system", o:"Typed-FP vocabulary · follows King’s parsing discipline",
+ d:"A total function answers for every input in its declared domain; partiality (failure, absence) must appear in the return type, never as a hidden throw or hang.",
+ u:"library and core code: callers can see everything that can happen in the signature.",
+ w:"totality by lying (returning a default that hides failure) is worse than honest partiality.",
+ l:[["Parse, don’t validate · King","https://lexi-lambda.github.io/blog/2019/11/05/parse-don-t-validate/"]]},
+{n:"Exhaustiveness Checking", c:"Types & Data", s:"Boundaries in the type system", o:"Discriminated unions + never · TypeScript idiom",
+ d:"End every match over a closed union with a check that fails to compile when a new variant appears; the compiler finds every switch you forgot.",
+ u:"state machines, event types, API result variants; adding a case becomes a guided refactor.",
+ w:"a default branch that ‘handles’ unknown cases silently disables the whole mechanism.",
+ l:[["Narrowing · TS Handbook","https://www.typescriptlang.org/docs/handbook/2/narrowing.html"],["FullStory · exhaustiveness","https://www.fullstory.com/blog/discriminated-unions-and-exhaustiveness-checking-in-typescript/"]]},
+{n:"Value Objects & Money", c:"Types & Data", s:"Domain values", o:"Fowler · PoEAA · 2002",
+ d:"Small immutable objects whose equality is by value, not identity: dates, ranges, money. PoEAA gives Money its own pattern: amount plus currency, never a bare float.",
+ u:"any quantity with rules (currency, units, precision); the object carries the rules with the number.",
+ w:"value objects want immutability; a setter on Money is a bug generator.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Money Is Integers (or Decimals), Never Binary Floats", c:"Types & Data", s:"Domain values", o:"Industry consensus · Modern Treasury et al.",
+ d:"Binary floating point cannot represent most decimal cents; store minor units as integers or use a decimal type, and round only at defined boundaries.",
+ u:"all monetary storage, arithmetic, and comparison; no exceptions in ledgers.",
+ w:"division and allocation still need explicit rounding rules (who gets the leftover cent?).",
+ l:[["Floats don’t work for cents · Modern Treasury","https://www.moderntreasury.com/journal/floats-dont-work-for-storing-cents"]]},
+{n:"Time: UTC, Zones, and Monotonic Clocks", c:"Types & Data", s:"Domain values", o:"Hard-won folklore · “Falsehoods about time”",
+ d:"Store and compare instants in UTC; attach IANA zones only for humans; measure durations with a monotonic clock; never hand-roll date arithmetic; the falsehoods list exists because everyone does.",
+ u:"scheduling, logging, expiry, benchmarks: anywhere wall clocks can jump, drift, or repeat an hour.",
+ w:"future events in local civil time are the exception: zones’ rules change, so store intent (time + zone), not the computed instant.",
+ l:[["Falsehoods programmers believe about time","https://gist.github.com/timvisee/fcda9bbdff88d45cc9061606b4b923ca"]]},
+{n:"Schema Validation at Trust Boundaries", c:"Types & Data", s:"Domain values", o:"OWASP guidance + runtime schema tools (zod)",
+ d:"Every input crossing a trust boundary (network, env, disk, DB, user) is parsed against an explicit schema on a trusted system, with unknown fields rejected; inside the boundary, code trusts types.",
+ u:"the runtime half of parse-don’t-validate; server-side always, allow-lists over deny-lists.",
+ w:"validating on the client only is decoration; attackers don’t run your client.",
+ l:[["OWASP Secure Coding checklist","https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/stable-en/02-checklist/05-checklist"],["zod","https://zod.dev/"]]},
+
+/* ================= ERRORS & RESILIENCE ================= */
+{n:"Fail Fast", c:"Errors & Resilience", s:"Failure semantics", o:"Jim Shore · IEEE Software · 2004",
+ d:"On detecting a problem, fail immediately and visibly near the cause. Working around errors automatically makes software “fail in mysterious ways later on”; failing fast yields fewer defects.",
+ u:"broken invariants, impossible states, bad configuration: stop at the source, don’t limp on with corrupt state.",
+ w:"fail fast applies to bugs; expected operational failures deserve handling, not crashes; see errors-as-values.",
+ l:[["Fail Fast · Shore","https://www.jamesshore.com/v2/blog/2004/fail-fast"],["IEEE PDF","https://martinfowler.com/ieeeSoftware/failFast.pdf"]]},
+{n:"Errors as Values (Result / Railway-Oriented)", c:"Errors & Resilience", s:"Failure semantics", o:"Typed-FP practice · Scott Wlaschin’s ROP",
+ d:"Expected failures travel in the return type (Result/Either) and compose along a ‘failure track’; exceptions are reserved for genuine bugs.",
+ u:"domain operations that can legitimately fail: parsing, lookups, payments; the signature shows every outcome.",
+ w:"don’t Result-wrap true invariant violations; a corrupted heap is not a value to pass along.",
+ l:[["Railway Oriented Programming · Wlaschin","https://fsharpforfunandprofit.com/rop/"]]},
+{n:"Assertions in Anger", c:"Errors & Resilience", s:"Failure semantics", o:"NASA/JPL Power of 10 · TigerBeetle TigerStyle",
+ d:"Average at least two assertions per function; assert arguments, returns, pre/postconditions, invariants, and assert both what you expect and what must never happen.",
+ u:"long-running and safety-critical code; assertions catch bugs at the moment of violation instead of megabytes later.",
+ w:"never put side effects in assertions, and decide explicitly which checks survive into production builds.",
+ l:[["Power of 10 (PDF)","https://spinroot.com/gerard/pdf/P10.pdf"],["TIGER_STYLE.md","https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md"]]},
+{n:"NASA’s Power of 10", c:"Errors & Resilience", s:"Failure semantics", o:"Gerard Holzmann · NASA/JPL · IEEE Computer 2006",
+ d:"Ten verifiable rules for safety-critical code: simple control flow (no recursion), fixed loop bounds, no dynamic allocation after init, short functions, ≥2 assertions per function, smallest scope, check every return, minimal preprocessor and pointers, zero warnings at the strictest settings.",
+ u:"embedded and life-critical software literally; everywhere else, as a calibration for how strict ‘strict’ can get.",
+ w:"written for C at JPL; import the spirit (bounded, checkable, assertion-dense) rather than the letter.",
+ l:[["Power of 10 (PDF)","https://spinroot.com/gerard/pdf/P10.pdf"],["Wikipedia","https://en.wikipedia.org/wiki/The_Power_of_10:_Rules_for_Developing_Safety-Critical_Code"]]},
+{n:"TigerStyle", c:"Errors & Resilience", s:"Failure semantics", o:"TigerBeetle · engineering style guide",
+ d:"A modern descendant of Power of 10: put a limit on everything (all loops and queues bounded), no recursion, assert positive and negative space, smallest scope, all compiler warnings at the strictest setting from day one.",
+ u:"database-grade and financial software; also the best single document to steal defensive defaults from.",
+ w:"its static-allocation stance assumes a fixed-workload design; adopt the limits mindset even where you keep malloc.",
+ l:[["TIGER_STYLE.md","https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md"],["tigerstyle.dev","https://tigerstyle.dev/"]]},
+{n:"Define Errors Out of Existence", c:"Errors & Resilience", s:"Failure semantics", o:"John Ousterhout · A Philosophy of Software Design",
+ d:"Redesign APIs so edge cases are normal behavior (deleting a missing file succeeds, unsetting an unset variable is fine), shrinking the error surface callers must handle.",
+ u:"designing library semantics: every exception you don’t throw is handling code nobody writes wrong.",
+ w:"don’t define away errors the caller genuinely must know about; silence is only golden when the outcome is truly equivalent.",
+ l:[["Ousterhout · talk notes","https://alex-ii.github.io/notes/2018/10/07/philosophy_of_software_design.html"]]},
+{n:"Never Swallow Errors", c:"Errors & Resilience", s:"Failure semantics", o:"Standard practice · corollary of fail-fast",
+ d:"No empty catch blocks: every error is handled meaningfully, converted to a typed error with context, or rethrown: one of the three, always.",
+ u:"code review checklist item; empty catches are where production mysteries are born.",
+ w:"logging alone is usually swallowing with extra steps; the caller still proceeds on a lie.",
+ l:[["Fail Fast · Shore","https://www.jamesshore.com/v2/blog/2004/fail-fast"]]},
+{n:"Crash-Only Software", c:"Errors & Resilience", s:"Failure semantics", o:"Candea & Fox · HotOS IX · 2003",
+ d:"Design so the only way to stop is to crash and the only way to start is to recover: one code path, exercised constantly, safe to kill at any time.",
+ u:"services under orchestrators that will kill them anyway; makes recovery the tested path rather than the feared one.",
+ w:"requires idempotent, journaled effects underneath; crash-only with non-idempotent side effects is just crashing.",
+ l:[["Crash-Only Software · USENIX","https://www.usenix.org/conference/hotos-ix/crash-only-software"]]},
+{n:"Anti-Corruption Layer", c:"Errors & Resilience", s:"Boundary protection", o:"Eric Evans · DDD · via Azure Architecture Center",
+ d:"A translation layer between your model and a legacy or third-party system, converting their types, semantics, and errors into yours at the border.",
+ u:"integrating anything you don’t control; upstream weirdness stays quarantined at the edge.",
+ w:"an ACL that leaks upstream types through it is a hallway, not a wall.",
+ l:[["ACL · Azure Architecture Center","https://learn.microsoft.com/en-us/azure/architecture/patterns/anti-corruption-layer"]]},
+{n:"Timeouts, Retries & Backoff with Jitter", c:"Errors & Resilience", s:"Boundary protection", o:"Marc Brooker · AWS Builders’ Library",
+ d:"Every remote call gets a timeout chosen from latency data; retries are ‘selfish’, so they are bounded, exponentially backed off, capped, jittered, applied at a single layer, and only on idempotent operations.",
+ u:"every network dependency, no exceptions; unjittered synchronized retries recreate the outage they respond to.",
+ w:"layered retries multiply (3 layers × 3 attempts = 27 calls); pick one layer to be the retrier.",
+ l:[["Timeouts, retries, and backoff with jitter · AWS","https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/"]]},
+{n:"Circuit Breaker", c:"Errors & Resilience", s:"Boundary protection", o:"Michael Nygard · Release It! · 2007",
+ d:"Wrap calls to a failing dependency; after a failure threshold the breaker opens and calls fail fast without contacting the victim, then a half-open probe tests recovery.",
+ u:"persistent downstream failure: retrying into a dying service finishes it off; breakers shed that load.",
+ w:"decide what an open breaker returns (error, fallback, cached value); that choice is the actual UX of the outage.",
+ l:[["CircuitBreaker · Fowler","https://martinfowler.com/bliki/CircuitBreaker.html"],["Release It!","https://pragprog.com/titles/mnee2/release-it-second-edition/"]]},
+{n:"Bulkhead", c:"Errors & Resilience", s:"Boundary protection", o:"Nygard · Release It! · via Azure catalog",
+ d:"Partition resources (pools, threads, instances) so one consumer’s failure or saturation cannot drown the rest, like a ship’s watertight compartments.",
+ u:"multi-tenant services and shared thread/connection pools; one noisy neighbor should sink one compartment only.",
+ w:"partitions cost utilization; size them from real load data, not symmetry.",
+ l:[["Bulkhead · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"],["Wikipedia","https://en.wikipedia.org/wiki/Bulkhead_pattern"]]},
+{n:"Idempotency & Idempotency Keys", c:"Errors & Resilience", s:"Boundary protection", o:"Stripe’s API design canon",
+ d:"Safe retries require idempotent operations; for external side effects, the client sends a unique key so the server executes once and replays the stored result on retry.",
+ u:"payments, order creation, webhooks, queue consumers: anywhere at-least-once delivery meets money or state.",
+ w:"key storage needs an expiry and a scope; ‘idempotent’ handlers that differ on the second call are the worst of both worlds.",
+ l:[["Designing robust APIs with idempotency · Stripe","https://stripe.com/blog/idempotency"],["Stripe API reference","https://docs.stripe.com/api/idempotent_requests"]]},
+{n:"Queue-Based Load Leveling", c:"Errors & Resilience", s:"Boundary protection", o:"Azure Architecture Center",
+ d:"Put a queue between producers and a service so bursts buffer instead of overwhelming it; the worker drains at its sustainable rate.",
+ u:"spiky ingestion in front of steady processing: webhooks, uploads, batch jobs.",
+ w:"queues hide backpressure: bound the queue and surface lag as a first-class metric, or discover it as an outage.",
+ l:[["Queue-Based Load Leveling · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Throttling & Rate Limiting", c:"Errors & Resilience", s:"Boundary protection", o:"Azure Architecture Center",
+ d:"Control resource consumption per client, tenant, or operation so demand spikes degrade service predictably instead of catastrophically.",
+ u:"every public API and every shared internal resource; pairs with quotas and 429s clients can obey.",
+ w:"throttle with clear signals (retry-after); silent slowness teaches clients to retry harder.",
+ l:[["Throttling · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+
+/* ================= TESTING ================= */
+{n:"The Test Pyramid", c:"Testing", s:"Strategy", o:"Mike Cohn · popularized by Ham Vocke (martinfowler.com) · 2018",
+ d:"Write tests at different granularities; the higher the level, the fewer the tests. Many fast unit tests at the base, fewer service tests, fewest end-to-end.",
+ u:"a default portfolio shape that keeps suites fast and failures local.",
+ w:"the ice-cream-cone inversion (mostly slow E2E tests) is “a nightmare to maintain”; also see the Trophy for UI-heavy apps.",
+ l:[["Practical Test Pyramid · Vocke","https://martinfowler.com/articles/practical-test-pyramid.html"]]},
+{n:"The Testing Trophy", c:"Testing", s:"Strategy", o:"Guillermo Rauch (2016) · Kent C. Dodds",
+ d:"“Write tests. Not too many. Mostly integration.” Static analysis at the base, integration tests as the bulk; they exercise real collaboration with the best confidence-per-cost.",
+ u:"apps where units are trivial but wiring is where bugs live (most web apps); coverage-chasing past ~70% has diminishing returns.",
+ w:"trophy vs pyramid is a portfolio argument, not a religion; libraries with deep pure logic still want a wide unit base.",
+ l:[["Write tests · Dodds","https://kentcdodds.com/blog/write-tests"],["Testing Trophy","https://kentcdodds.com/blog/the-testing-trophy-and-testing-classifications"]]},
+{n:"Test-Driven Development", c:"Testing", s:"Strategy", o:"Kent Beck · TDD: By Example · 2002",
+ d:"Red–green–refactor: write a failing test, make it pass with the simplest thing, then clean up under green. The test is a design tool first, a regression net second.",
+ u:"well-understood behavior with crisp examples; forces testable seams and tiny steps.",
+ w:"TDD on unclear requirements produces confident tests of the wrong thing; spike first, then test-drive.",
+ l:[["Learning TDD · O’Reilly preface","https://www.oreilly.com/library/view/learning-test-driven-development/9781098106461/preface01.html"],["Beck · Goodreads","https://www.goodreads.com/en/book/show/387190.Test_Driven_Development"]]},
+{n:"Property-Based Testing", c:"Testing", s:"Technique", o:"Claessen & Hughes · QuickCheck · ICFP 2000",
+ d:"State invariants (‘for all inputs, decode(encode(x)) = x’) and let the framework generate and shrink counterexamples, instead of hand-picking examples.",
+ u:"pure logic, parsers, serializers, anything with round-trips, orderings, or algebraic laws.",
+ w:"weak properties pass everything; the craft is in the invariant, and shrinking quality decides debuggability.",
+ l:[["QuickCheck paper (PDF)","https://www.cs.tufts.edu/~nr/cs257/archive/john-hughes/quick.pdf"],["PBT frameworks overview","https://github.com/jmid/pbt-frameworks"]]},
+{n:"Mutation Testing", c:"Testing", s:"Technique", o:"Stryker / PIT tooling",
+ d:"Inject small code mutations and check that tests fail; surviving mutants expose assertions you never actually made. Tests the tests.",
+ u:"auditing a suite you’re about to trust for a refactor; coverage says code ran, mutation says behavior was checked.",
+ w:"expensive to run; target changed code or critical modules rather than the world.",
+ l:[["Stryker · docs","https://stryker-mutator.io/docs/"]]},
+{n:"Fuzzing", c:"Testing", s:"Technique", o:"Google OSS-Fuzz · continuous fuzzing at scale",
+ d:"Feed generated and mutated inputs to anything that parses untrusted bytes, watching for crashes, hangs, and sanitizer violations.",
+ u:"parsers, decoders, protocol handlers: the code attackers reach first. OSS-Fuzz exists because this finds real CVEs continuously.",
+ w:"fuzzing finds robustness bugs, not logic bugs; pair with property tests for semantics.",
+ l:[["OSS-Fuzz","https://github.com/google/oss-fuzz"]]},
+{n:"Hermetic, Deterministic Tests", c:"Testing", s:"Discipline", o:"Google Testing Blog",
+ d:"Tests control their world (fake time, network, randomness, and shared state) so a failure means the code changed, not the weather. A flaky test is a defect, not a nuisance.",
+ u:"as a hard gate: quarantine or fix flakes immediately; a suite people retry is a suite people ignore.",
+ w:"sleeps and real clocks are the top flake sources; inject the clock.",
+ l:[["Flaky tests at Google","https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html"],["Where flaky tests come from","https://testing.googleblog.com/2017/04/where-do-our-flaky-tests-come-from.html"]]},
+{n:"Don’t Mock What You Don’t Own", c:"Testing", s:"Discipline", o:"Freeman & Pryce · GOOS",
+ d:"Mocking third-party interfaces verifies your guess about them; instead wrap the dependency in your own small interface, mock the wrapper, and integration-test the real thing.",
+ u:"HTTP clients, SDKs, ORMs; the wrapper is also your anti-corruption layer.",
+ w:"a mock-everything suite can pass while production burns; every mocked boundary needs one real test somewhere.",
+ l:[["What to mock · Hynek","https://hynek.me/articles/what-to-mock-in-5-mins/"],["Findmypast Tech","https://tech.findmypast.com/dont-mock-what-you-dont-own/"]]},
+{n:"Regression Test per Bug", c:"Testing", s:"Discipline", o:"Standard practice",
+ d:"Every bug fix ships with a test that failed before the fix and passes after: the bug’s tombstone.",
+ u:"non-negotiable ritual; bugs cluster, and the second occurrence of a fixed bug is a process failure.",
+ w:"write the test first and watch it fail, or you may be enshrining a test that never detected anything.",
+ l:[]},
+{n:"Test Doubles & Service Stubs", c:"Testing", s:"Discipline", o:"Fowler · PoEAA (Service Stub)",
+ d:"Stand-ins (stubs, fakes, mocks) that remove dependence on slow or problematic services during testing; PoEAA canonized the Service Stub for exactly this.",
+ u:"fast unit and integration tests; a good in-memory fake of your own gateway is worth a hundred mocks.",
+ w:"doubles drift from reality; contract tests or periodic real-service runs keep them honest.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+
+/* ================= SECURITY ================= */
+{n:"Saltzer & Schroeder’s Design Principles", c:"Security", s:"Foundations", o:"Saltzer & Schroeder · 1975",
+ d:"The 1975 octet still underneath everything: economy of mechanism, fail-safe defaults, complete mediation, open design, separation of privilege, least privilege, least common mechanism, psychological acceptability.",
+ u:"security design reviews: fifty years old and each principle still names a current breach class.",
+ w:"‘open design’ means no security through obscurity of mechanism; keys stay secret, algorithms don’t.",
+ l:[["The Protection of Information · full paper","https://www.cs.virginia.edu/~evans/cs551/saltzer/"]]},
+{n:"Fail-Safe Defaults / Fail Closed", c:"Security", s:"Foundations", o:"Saltzer & Schroeder · 1975 · echoed by OWASP",
+ d:"Base access on explicit permission; the default is no access, and errors deny rather than allow. OWASP: security controls “fail securely”.",
+ u:"authorization paths, feature gates, error handlers: ask what happens when the check itself breaks.",
+ w:"fail-open sneaks in as ‘graceful degradation’; degrading auth gracefully is a breach.",
+ l:[["Saltzer & Schroeder","https://www.cs.virginia.edu/~evans/cs551/saltzer/"],["OWASP checklist","https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/stable-en/02-checklist/05-checklist"]]},
+{n:"Least Privilege", c:"Security", s:"Foundations", o:"Saltzer & Schroeder · 1975",
+ d:"Every program, user, token, and service operates with the minimum privileges required, so a compromise is bounded by construction.",
+ u:"DB users per service, scoped API tokens, IAM roles, container capabilities: everywhere a credential exists.",
+ w:"privilege creep is the default direction of entropy; audit grants on a schedule, not on an incident.",
+ l:[["Saltzer & Schroeder","https://www.cs.virginia.edu/~evans/cs551/saltzer/"]]},
+{n:"Input Validation & Output Encoding", c:"Security", s:"Practice", o:"OWASP Secure Coding Practices",
+ d:"Validate all input on a trusted system with allow-lists and canonicalization; encode all output for its destination context (HTML, SQL, shell, URL) with tested routines.",
+ u:"the two halves of injection defense: validate what comes in, encode what goes out, per context.",
+ w:"validation is not encoding; clean-looking input can still be an XSS payload for a context you didn’t encode for.",
+ l:[["OWASP Secure Coding checklist","https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/stable-en/02-checklist/05-checklist"]]},
+{n:"Parameterized Queries", c:"Security", s:"Practice", o:"OWASP Secure Coding Practices",
+ d:"“Use strongly typed parameterized queries”: SQL structure and data travel separately, ending injection by construction; least-privilege DB accounts bound the blast radius.",
+ u:"all database access; string-built SQL is a finding, not a style choice.",
+ w:"dynamic identifiers (table/column names) can’t be parameterized; allow-list those explicitly.",
+ l:[["OWASP Secure Coding checklist","https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/stable-en/02-checklist/05-checklist"]]},
+{n:"Secrets Hygiene", c:"Security", s:"Practice", o:"Twelve-Factor config + OWASP",
+ d:"Secrets live in the environment or a secret manager, never in code, repos, logs, or error messages; config is what varies between deploys, and credentials are config.",
+ u:"a leaked repo should cost you embarrassment, not credentials.",
+ w:"environment variables leak through crash dumps and child processes; managers with rotation beat raw env for high-value keys.",
+ l:[["Config · 12factor.net","https://12factor.net/config"],["OWASP checklist","https://owasp.org/www-project-secure-coding-practices-quick-reference-guide/stable-en/02-checklist/05-checklist"]]},
+{n:"Supply-Chain Hygiene", c:"Security", s:"Practice", o:"OpenSSF · lockfile-first guidance",
+ d:"Pin dependencies with lockfiles, audit and update deliberately, and treat the package ecosystem as untrusted input; the lockfile is the cheapest supply-chain defense you own.",
+ u:"every project with a package manager, which is every project.",
+ w:"pinning without a cadence trades supply-chain risk for unpatched-CVE risk; automate the update PRs.",
+ l:[["The lockfile · Semgrep","https://semgrep.dev/blog/2026/the-best-free-open-source-supply-chain-tool-the-lockfile/"],["OpenSSF supply chain","https://openssf.org/technical-initiatives/software-supply-chain/"]]},
+/* ================= GOF PATTERNS ================= */
+{n:"The Gang of Four Catalog", c:"Design Patterns", s:"The classic catalog", o:"Gamma, Helm, Johnson & Vlissides · 1994",
+ d:"Design Patterns: Elements of Reusable Object-Oriented Software: 23 patterns in three families (creational, structural, behavioral), plus the two meta-principles: program to an interface, and favor composition over inheritance.",
+ u:"as vocabulary: a shared name compresses a design conversation from an hour to a sentence.",
+ w:"patterns are remedies for specific tensions, several of which dissolve in languages with closures and first-class functions; pattern-density is not design quality.",
+ l:[["Design Patterns · Wikipedia","https://en.wikipedia.org/wiki/Design_Patterns"],["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+
+{n:"Factory Method", c:"Design Patterns", s:"Creational", o:"GoF · 1994",
+ d:"Creates objects without specifying the exact class: subclasses (or implementations) decide what to instantiate behind a common creation interface.",
+ u:"a framework must construct things whose concrete type its callers choose: plugins, drivers, per-format handlers.",
+ w:"one static create() with a switch is often enough; reach for the full pattern only when creation truly varies by subtype.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Abstract Factory", c:"Design Patterns", s:"Creational", o:"GoF · 1994",
+ d:"Groups factories that share a theme, producing whole families of related objects that are guaranteed to be mutually compatible.",
+ u:"products come in consistent families: themed widgets, per-database driver sets, per-platform toolkits.",
+ w:"adding a new product type touches every factory; heavy unless the family axis is real and stable.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Builder", c:"Design Patterns", s:"Creational", o:"GoF · 1994",
+ d:"Constructs complex objects step by step, separating construction from representation so the same steps can yield different results.",
+ u:"many optional parts, staged assembly, or fluent configuration of an immutable result.",
+ w:"in languages with named/default arguments and object literals, a builder is often ceremony.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Prototype", c:"Design Patterns", s:"Creational", o:"GoF · 1994",
+ d:"Creates new objects by cloning a configured exemplar instead of constructing from scratch.",
+ u:"construction is expensive or the ‘recipe’ lives in runtime state; copy the configured instance.",
+ w:"deep-vs-shallow copy is the whole game; a shallow clone sharing mutable guts is a bug factory.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Singleton", c:"Design Patterns", s:"Creational", o:"GoF · 1994",
+ d:"Restricts a class to one instance with a global access point.",
+ u:"a genuinely single physical resource: a process-wide config snapshot, a hardware handle.",
+ w:"the most regretted pattern: global mutable state in a costume, hostile to tests and concurrency. Prefer one instance created at the composition root and passed in.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+
+{n:"Adapter", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Lets classes with incompatible interfaces work together by wrapping one to present the interface the other expects.",
+ u:"integrating third-party or legacy types into your own interfaces; the in-process cousin of the anti-corruption layer.",
+ w:"adapters that add behavior stop being adapters; keep translation and logic separate.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Bridge", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Decouples an abstraction from its implementation so the two hierarchies can vary independently.",
+ u:"two independent axes of variation (shapes × renderers, notifications × channels) threaten a class-per-combination explosion.",
+ w:"speculative bridges are indirection without payoff; wait until the second axis actually exists.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Composite", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Composes objects into tree structures so individual items and whole groups are handled through one interface.",
+ u:"part–whole hierarchies (UI trees, file systems, org charts) where callers shouldn’t care if it’s a leaf or a branch.",
+ w:"operations that only make sense on leaves (or only on groups) start sprouting type checks; keep the shared interface honest.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Decorator", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Wraps an object to add behavior dynamically while preserving its interface: stackable, at runtime, per instance.",
+ u:"optional, combinable add-ons: compression + encryption + buffering around a stream; middleware is this pattern.",
+ w:"deep decorator stacks are hard to debug and identity-sensitive code (equality, casts) breaks through wrappers.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Facade", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Provides one simplified interface to a large subsystem, hiding its internal choreography.",
+ u:"a messy or powerful subsystem needs a simple front door for the 90% use case; this is how you build Ousterhout’s deep modules.",
+ w:"a facade that merely re-exports everything hides nothing; keep the escape hatch to the full subsystem explicit.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Flyweight", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"Shares immutable intrinsic state among many objects to cut memory for huge object counts.",
+ u:"millions of similar small objects (glyphs, map tiles, particles) where per-instance state is tiny.",
+ w:"an optimization pattern: measure first, and keep shared state strictly immutable.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Proxy", c:"Design Patterns", s:"Structural", o:"GoF · 1994",
+ d:"A stand-in with the same interface that controls access to the real object: lazily creating it, caching, guarding, or crossing a network.",
+ u:"lazy loading, access control, remote objects, caching; the client shouldn’t know or care.",
+ w:"proxies change performance and failure semantics invisibly (Hyrum’s Law applies); document what the stand-in adds.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+
+{n:"Chain of Responsibility", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Passes a request along a chain of handlers until one handles it, decoupling sender from receiver.",
+ u:"layered handling: middleware pipelines, event bubbling, support-tier escalation.",
+ w:"requests can fall off the end unhandled; define the chain’s default explicitly.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Command", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Reifies an action and its parameters as an object that can be queued, logged, undone, or scheduled.",
+ u:"undo/redo stacks, job queues, transactional scripts, macro recording.",
+ w:"in functional languages a closure is a command; add the class only when you need undo metadata or persistence.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Interpreter", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Represents a small language’s grammar as a class hierarchy and evaluates sentences by walking the tree.",
+ u:"a genuine mini-language (filters, rules, formulas) small enough to own.",
+ w:"grammars grow; past a modest size reach for a parser generator or an embedded language instead.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Iterator", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Accesses a collection’s elements sequentially without exposing its underlying representation.",
+ u:"already built into most languages (for…of, generators); implement the protocol for your own containers and lazy sequences.",
+ w:"mutation during iteration is the classic trap; define and enforce the policy.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Mediator", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Centralizes many-to-many communication: colleagues talk to a mediator instead of each other, collapsing the interaction web into a hub.",
+ u:"dialogs, form orchestration, chat rooms: n² pairwise coupling refactors into n spokes.",
+ w:"the mediator happily grows into a god object; keep it routing, not deciding everything.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Memento", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Captures an object’s state in an opaque token so it can be restored later without violating encapsulation.",
+ u:"undo, snapshots, transactional rollback of in-memory state.",
+ w:"snapshots of large state get expensive; consider event-sourced or persistent data structures instead.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Observer", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Publish/subscribe: observers register with a subject and are notified of state changes, decoupling producers from consumers.",
+ u:"UI data-binding, domain events, reactive streams: one change, many interested parties.",
+ w:"hidden control flow: cascades of notifications are hard to trace, leaked subscriptions are the classic memory leak, and ordering is undefined unless you define it.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"State", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"An object alters its behavior when its internal state changes by delegating to a state object per mode, the OO rendering of a state machine.",
+ u:"mode-dependent behavior drowning in flag checks; each state becomes a class, transitions become explicit.",
+ w:"pairs beautifully with ‘make illegal states unrepresentable’: model transitions as data, forbid the impossible ones at compile time.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Strategy", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Encapsulates interchangeable algorithms behind one interface, selected at runtime.",
+ u:"the same job done different ways (pricing rules, retry policies, compression codecs) chosen by config or context.",
+ w:"in functional languages this is ‘pass a function’; add the interface only when strategies carry state or need discovery.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Template Method", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"A base class defines an algorithm’s skeleton; subclasses fill in specific steps without changing its structure.",
+ u:"a fixed workflow with pluggable steps, enforced by the framework (‘don’t call us, we’ll call you’).",
+ w:"inheritance-based variation inherits inheritance’s problems; Strategy-by-composition is usually the more flexible sibling.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+{n:"Visitor", c:"Design Patterns", s:"Behavioral", o:"GoF · 1994",
+ d:"Separates operations from the object structure they operate on, letting you add new operations without touching the element classes.",
+ u:"stable structure, growing operations: compilers walking ASTs are the canonical case.",
+ w:"the inverse trade: adding a new element type touches every visitor. Sum types with exhaustive matching serve the same need more simply.",
+ l:[["Catalog · refactoring.guru","https://refactoring.guru/design-patterns/catalog"]]},
+/* ================= ARCHITECTURE ================= */
+{n:"Hexagonal Architecture (Ports & Adapters)", c:"Architecture", s:"Styles & boundaries", o:"Alistair Cockburn",
+ d:"The application core exposes ports (interfaces it defines); adapters plug the world (UI, DB, queues, tests) into those ports. Inside knows nothing about outside.",
+ u:"you want the core testable without infrastructure and swappable edges; kin to onion/clean architecture and functional core, imperative shell.",
+ w:"for CRUD-thin apps the ceremony can exceed the core; the payoff scales with domain logic.",
+ l:[["Hexagonal architecture · Cockburn","https://alistair.cockburn.us/hexagonal-architecture"],["Wikipedia","https://en.wikipedia.org/wiki/Hexagonal_architecture_(software)"]]},
+{n:"Functional Core, Imperative Shell", c:"Architecture", s:"Styles & boundaries", o:"Gary Bernhardt · Destroy All Software",
+ d:"Pure decision-making logic lives in a functional core; a thin imperative shell owns all I/O and feeds the core values in, effects out. Bernhardt's screencast and “Boundaries” talk made it canon.",
+ u:"the small-scale sibling of hexagonal: most unit tests hit the pure core with plain values, and the shell stays too thin to hide bugs.",
+ w:"a shell that starts making decisions (or a core that sneaks in a clock or a network call) quietly dissolves the whole benefit.",
+ l:[["Functional Core, Imperative Shell · screencast","https://www.destroyallsoftware.com/screencasts/catalog/functional-core-imperative-shell"],["Boundaries · talk","https://www.destroyallsoftware.com/talks/boundaries"]]},
+{n:"Model–View–Controller", c:"Architecture", s:"Styles & boundaries", o:"Trygve Reenskaug lineage · PoEAA formulation",
+ d:"“Splits user interface interaction into three distinct roles”: model holds state and logic, view renders, controller mediates input.",
+ u:"the ancestral separation behind nearly every UI framework; the enduring lesson is keeping domain logic out of the view.",
+ w:"‘MVC’ means something different in every framework; agree on which one before arguing about it.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Front Controller", c:"Architecture", s:"Styles & boundaries", o:"Fowler · PoEAA · 2002",
+ d:"One controller handles all requests for a site; the single entry point where routing, auth, and cross-cutting concerns live; every modern web framework’s router is one.",
+ u:"consolidating cross-cutting request logic instead of duplicating it per page.",
+ w:"middleware ordering in the front controller becomes real architecture; document it.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Transaction Script vs Domain Model", c:"Architecture", s:"Styles & boundaries", o:"Fowler · PoEAA · 2002",
+ d:"Two ways to organize business logic: a procedure per request (Transaction Script) or an object model where data and behavior live together (Domain Model).",
+ u:"scripts for simple, mostly-CRUD logic; a domain model when rules are rich, interrelated, and reused across operations.",
+ w:"the classic failure is the ‘anemic domain model’: model-shaped classes with script-shaped logic smeared elsewhere.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Service Layer", c:"Architecture", s:"Styles & boundaries", o:"Fowler · PoEAA · 2002",
+ d:"“Defines an application’s boundary with a layer of services that establishes a set of available operations”; the API of your domain, coordinating workflows and transactions.",
+ u:"multiple clients (web, jobs, API) need the same operations with the same rules; the layer is where use-cases live.",
+ w:"a service layer that only forwards to repositories is a corridor; put orchestration there or don’t build it.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Domain-Driven Boundaries (Subdomains & Contexts)", c:"Architecture", s:"Styles & boundaries", o:"Eric Evans’s DDD · applied by microservices.io",
+ d:"Partition a large domain by business subdomains, each with its own model and language; integrate contexts deliberately (e.g., through anti-corruption layers) rather than sharing one grand model.",
+ u:"decomposing services or teams: ‘decompose by business capability / subdomain’ is the microservices boundary heuristic that survives contact with reality.",
+ w:"boundaries drawn by org chart or database tables instead of the domain produce distributed monoliths; see Conway.",
+ l:[["Decomposition patterns · microservices.io","https://microservices.io/patterns/index.html"],["ACL · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/anti-corruption-layer"]]},
+{n:"Monolith First, Microservices Maybe", c:"Architecture", s:"Styles & boundaries", o:"Chris Richardson · microservices.io framing",
+ d:"Monolith and microservices are both legitimate styles with explicit trade-offs: one deployable unit and simple operations vs. independent deployability, scaling, and team autonomy, paid for with all eight distributed-computing fallacies.",
+ u:"split when team scale, deploy contention, or divergent scaling actually hurt, and split along subdomain seams.",
+ w:"microservices are an organizational scaling tool more than a technical one; a distributed system you didn’t need is pure cost (see Gall’s Law).",
+ l:[["Patterns index · microservices.io","https://microservices.io/patterns/index.html"]]},
+
+{n:"Repository", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"“Mediates between the domain and data mapping layers using a collection-like interface for accessing domain objects”: the domain asks for aggregates, not rows.",
+ u:"a rich domain model that must stay persistence-ignorant; also the natural seam for in-memory fakes in tests.",
+ w:"generic repository<T> wrappers over an ORM add nothing; repositories earn their keep exposing domain-meaningful queries.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Unit of Work", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"“Maintains a list of objects affected by a business transaction and coordinates the writing out of changes”: one commit, correct ordering, no partial writes.",
+ u:"multiple objects change together and must persist atomically; your ORM’s session/context is one.",
+ w:"long-lived units of work hold locks and stale state; scope them to the business transaction, no wider.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Active Record vs Data Mapper", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"Active Record: the object wraps a row and saves itself: simple, fast to build. Data Mapper: “a layer of mappers that moves data between objects and a database while keeping them independent.”",
+ u:"Active Record for CRUD apps whose model mirrors tables; Data Mapper when the domain model must diverge from the schema.",
+ w:"Active Record couples domain to persistence by design: fine until the domain gets rich, painful after.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Identity Map & Lazy Load", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"Identity Map “ensures that each object gets loaded only once” per session; Lazy Load defers fetching data until first use.",
+ u:"the machinery inside every serious ORM; know them to understand what your ORM is doing to you.",
+ w:"lazy loading in a loop is the N+1 query generator; identity maps make stale reads possible across long sessions.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Gateway, Remote Facade & DTO", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"Gateway encapsulates access to an external system; Remote Facade provides a coarse-grained face over fine-grained objects; the DTO “carries data between processes to reduce the number of method calls.”",
+ u:"the trio that makes process boundaries livable: chunky calls, explicit payloads, wrapped externals.",
+ w:"DTO-mapping boilerplate is real; generate it or scope it to actual process boundaries, not every layer.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Special Case (Null Object)", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"“A subclass that provides special behavior for particular cases”: e.g., a MissingCustomer that behaves sensibly instead of a null that must be checked everywhere.",
+ u:"a domain concept has a meaningful ‘absent/default’ behavior; callers stop branching on null.",
+ w:"a special case that silently absorbs writes hides bugs; it must behave correctly, not just not-crash.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+{n:"Optimistic vs Pessimistic Offline Lock", c:"Architecture", s:"Domain & persistence (PoEAA)", o:"Fowler · PoEAA · 2002",
+ d:"Across long business transactions: optimistic locking detects conflicts at commit and rolls back; pessimistic locking prevents them by letting only one transaction touch the data at a time.",
+ u:"optimistic when conflicts are rare (web apps, version columns); pessimistic when redoing work is unacceptable or conflicts are common.",
+ w:"optimistic locking without a user-facing merge/retry story just moves the failure to the save button.",
+ l:[["PoEAA catalog · Fowler","https://martinfowler.com/eaaCatalog/"]]},
+
+{n:"API Gateway & Backends for Frontends", c:"Architecture", s:"Distributed & cloud", o:"microservices.io · Azure catalog",
+ d:"A single entry point for clients (gateway), optionally with one purpose-built backend per frontend type (BFF), handling routing, aggregation, auth, and offloaded cross-cutting concerns.",
+ u:"many services behind many clients; BFF when web, mobile, and partners need genuinely different shapes.",
+ w:"the gateway is a chokepoint and a deploy bottleneck if it accretes business logic; keep it thin.",
+ l:[["API gateway · microservices.io","https://microservices.io/patterns/index.html"],["Gateway patterns · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Database per Service", c:"Architecture", s:"Distributed & cloud", o:"Chris Richardson · microservices.io",
+ d:"Each service owns its data store exclusively; others get data through its API, never its tables. The alternative (shared database) couples every service at the schema.",
+ u:"real service autonomy: independent schemas, scaling, and deploys. This is the decision that makes microservices micro.",
+ w:"you just signed up for distributed data: sagas, outboxes, and eventual consistency are the bill.",
+ l:[["Database per service · microservices.io","https://microservices.io/patterns/index.html"]]},
+{n:"Saga", c:"Architecture", s:"Distributed & cloud", o:"microservices.io · Azure catalog",
+ d:"Manages consistency across services without distributed transactions: a sequence of local transactions, each publishing the next step, with compensating transactions to undo on failure.",
+ u:"multi-service workflows (order → payment → inventory) once two-phase commit is off the table.",
+ w:"compensations are not rollbacks: design each step to be compensatable, and expect to observe in-between states.",
+ l:[["Saga · microservices.io","https://microservices.io/patterns/index.html"],["Saga · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Transactional Outbox", c:"Architecture", s:"Distributed & cloud", o:"Chris Richardson · microservices.io",
+ d:"Write the domain change and the event to publish in one local transaction (the outbox table); a relay publishes events afterwards: atomically consistent messaging without 2PC.",
+ u:"any ‘save to DB and publish to broker’ pair; without it, one of the two will eventually happen alone.",
+ w:"the relay must be idempotent and ordered per aggregate; consumers still need dedupe (at-least-once delivery).",
+ l:[["Transactional outbox · microservices.io","https://microservices.io/patterns/index.html"]]},
+{n:"CQRS", c:"Architecture", s:"Distributed & cloud", o:"Greg Young · documented by Fowler · Azure catalog",
+ d:"Command Query Responsibility Segregation: separate models for updating and reading: commands mutate a write model, queries hit read models shaped for each view.",
+ u:"read and write workloads differ wildly, or complex domains need simple, fast, denormalized views; often paired with event sourcing.",
+ w:"Fowler’s documented caution: most systems don’t need it; apply CQRS to a bounded context that has earned it, never as a whole-app default.",
+ l:[["CQRS · Fowler","https://martinfowler.com/bliki/CQRS.html"],["CQRS · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs"]]},
+{n:"Event Sourcing", c:"Architecture", s:"Distributed & cloud", o:"Azure catalog · microservices.io",
+ d:"“Use an append-only store to record a full series of events that describe actions taken on data”: current state is a fold over history, and history is the source of truth.",
+ u:"audit is a first-class requirement, temporal queries matter, or events already are the domain (ledgers, trading).",
+ w:"schema evolution of old events, replay cost, and GDPR-style deletion are the long-tail bills; snapshotting is not optional at scale.",
+ l:[["Event Sourcing · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"],["Event sourcing · microservices.io","https://microservices.io/patterns/index.html"]]},
+{n:"Domain Events & Messaging", c:"Architecture", s:"Distributed & cloud", o:"microservices.io",
+ d:"Services publish facts (‘OrderPlaced’) rather than calling each other’s verbs; consumers react asynchronously, decoupling availability and deploy schedules.",
+ u:"cross-service side effects (notifications, projections, integrations) where temporal coupling would hurt.",
+ w:"async trades latency coupling for eventual consistency and observability debt: you now need tracing, DLQs, and idempotent consumers.",
+ l:[["Messaging & domain events · microservices.io","https://microservices.io/patterns/index.html"]]},
+{n:"Service Discovery", c:"Architecture", s:"Distributed & cloud", o:"Chris Richardson · microservices.io",
+ d:"Services find each other through a registry, client-side (caller queries registry, picks instance) or server-side (a router/LB does it), instead of hardcoded addresses.",
+ u:"dynamic fleets where instances come and go; in Kubernetes, the platform’s DNS/service layer is this pattern operated for you.",
+ w:"discovery data is a cache of reality; health checks and TTLs decide how wrong it can briefly be.",
+ l:[["Service discovery · microservices.io","https://microservices.io/patterns/index.html"]]},
+{n:"Sidecar & Ambassador", c:"Architecture", s:"Distributed & cloud", o:"Azure Architecture Center",
+ d:"Deploy helper functionality in a companion process/container: sidecars add capabilities (proxying, telemetry, config) beside the app; ambassadors specifically proxy its outbound network calls.",
+ u:"cross-cutting infrastructure (mTLS, retries, metrics) applied uniformly without touching app code; service meshes are sidecars industrialized.",
+ w:"each sidecar adds latency, resources, and a failure mode; a mesh is a platform commitment, not a sprinkle.",
+ l:[["Sidecar · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"],["Ambassador · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Strangler Fig", c:"Architecture", s:"Distributed & cloud", o:"Martin Fowler · via Azure catalog",
+ d:"Incrementally replace a legacy system by routing functionality piece by piece to new services around it, until the old system is strangled and removed.",
+ u:"the escape from big-bang rewrites Gall’s Law warns about: value ships continuously and risk stays bounded.",
+ w:"needs an interception seam (proxy, facade) and the discipline to finish; half-strangled systems are two systems forever.",
+ l:[["Strangler Fig · Fowler","https://martinfowler.com/bliki/StranglerFigApplication.html"],["Strangler Fig · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/strangler-fig"]]},
+{n:"Cache-Aside", c:"Architecture", s:"Distributed & cloud", o:"Azure Architecture Center",
+ d:"“Load data on demand into a cache from a data store”: on miss, read the store, populate the cache; on write, update the store and invalidate.",
+ u:"read-heavy data that tolerates brief staleness; the simplest honest caching strategy.",
+ w:"you have now acquired the first Hard Thing: invalidation, stampedes, and staleness windows are yours to bound (TTLs, single-flight).",
+ l:[["Cache-Aside · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Sharding", c:"Architecture", s:"Distributed & cloud", o:"Azure Architecture Center",
+ d:"“Divide a data store into a set of horizontal partitions or shards”, each holding a subset keyed by a shard key.",
+ u:"a dataset or write load that one node genuinely cannot hold, once vertical scaling and read replicas are exhausted.",
+ w:"the shard key is nearly unchangeable later; hot keys and cross-shard queries are the failure modes to design against first.",
+ l:[["Sharding · Azure","https://learn.microsoft.com/en-us/azure/architecture/patterns/"]]},
+{n:"Richardson Maturity Model", c:"Architecture", s:"Distributed & cloud", o:"Leonard Richardson · explained by Fowler",
+ d:"Levels of REST adoption: level 0, one URI tunnel; level 1, resources; level 2, HTTP verbs and status codes; level 3, hypermedia controls (HATEOAS).",
+ u:"a shared ruler for API design conversations; level 2 is the industry’s working plateau.",
+ w:"maturity is not a mandate; level 3’s payoff depends on clients that actually follow links, which most don’t.",
+ l:[["Richardson Maturity Model · Fowler","https://martinfowler.com/articles/richardsonMaturityModel.html"]]},
+
+/* ================= DELIVERY & OPS ================= */
+{n:"The Twelve-Factor App", c:"Delivery & Ops", s:"Shipping", o:"Heroku (Adam Wiggins) · 12factor.net",
+ d:"Twelve rules for deployable services; the load-bearing ones: config in the environment, stateless processes, dev/prod parity, logs as event streams, disposability.",
+ u:"the default contract for anything that runs in a container; factor III (config) alone prevents a class of leaks and snowflakes.",
+ w:"written for Heroku-era PaaS; treat as principles, not scripture; some factors (e.g., logs to stdout) assume a platform that catches them.",
+ l:[["Config · 12factor.net","https://12factor.net/config"]]},
+{n:"Semantic Versioning", c:"Delivery & Ops", s:"Shipping", o:"Tom Preston-Werner · semver.org",
+ d:"MAJOR.MINOR.PATCH: increment MAJOR for incompatible API changes, MINOR for backward-compatible features, PATCH for backward-compatible fixes.",
+ u:"any published interface: libraries, APIs, schemas; the version number is a compressed changelog of risk.",
+ w:"Hyrum’s Law: consumers depend on behavior you never promised, so ‘compatible’ is an aspiration to verify, not declare.",
+ l:[["semver.org","https://semver.org/"],["Hyrum’s Law","https://www.hyrumslaw.com/"]]},
+{n:"Parallel Change (Expand → Migrate → Contract)", c:"Delivery & Ops", s:"Shipping", o:"Danilo Sato on Fowler’s bliki · technique via Kerievsky",
+ d:"Never break readers in one step: add the new form alongside the old (expand), move consumers over (migrate), then remove the old (contract).",
+ u:"schema changes, API evolution, renames: anything with independent deploy timing between writers and readers.",
+ w:"the contract step is the one teams skip; un-contracted expansions accumulate as permanent double-writes.",
+ l:[["Parallel Change · Fowler bliki","https://martinfowler.com/bliki/ParallelChange.html"]]},
+{n:"Feature Flags & Kill Switches", c:"Delivery & Ops", s:"Shipping", o:"Pete Hodgson · martinfowler.com",
+ d:"Toggle behavior at runtime to decouple deploy from release: gradual rollouts, A/B exposure, and instant kill switches for misbehaving paths.",
+ u:"risky launches and trunk-based development; the flag is how unfinished code ships safely.",
+ w:"flags are inventory with a carrying cost: categorize by lifespan and delete released ones, or inherit 2^n untested configurations.",
+ l:[["Feature Toggles · Hodgson","https://martinfowler.com/articles/feature-toggles.html"]]},
+{n:"Trunk-Based Development", c:"Delivery & Ops", s:"Shipping", o:"trunkbaseddevelopment.com",
+ d:"Everyone integrates into one shared trunk in small, frequent commits; branches, if any, live hours to a couple of days behind flags.",
+ u:"continuous integration in the literal sense: merge pain shrinks with batch size; DORA’s data associates the practice with elite delivery.",
+ w:"requires the safety net first: fast CI, good tests, feature flags. Trunk-based without them is just pushing to main.",
+ l:[["trunkbaseddevelopment.com","https://trunkbaseddevelopment.com/"],["Short-lived branches","https://trunkbaseddevelopment.com/short-lived-feature-branches/"]]},
+{n:"Conventional Commits", c:"Delivery & Ops", s:"Shipping", o:"conventionalcommits.org",
+ d:"A commit-message convention (feat:, fix:, BREAKING CHANGE:) that makes history machine-readable: changelogs and semver bumps generate themselves.",
+ u:"any repo wanting automated releases; the grammar costs nothing once habitual.",
+ w:"the type prefix doesn’t excuse the message body: say why, not just what kind.",
+ l:[["Conventional Commits","https://www.conventionalcommits.org/en/v1.0.0/"]]},
+{n:"Code Review, the Google Way", c:"Delivery & Ops", s:"Shipping", o:"Google Engineering Practices",
+ d:"Reviewers check design, functionality, complexity, tests, naming, comments, style, and docs, with small changelists and fast reviewer response as the enabling constraints.",
+ u:"review for what tools can’t catch (design, clarity); let linters argue about formatting.",
+ w:"review standards that demand perfection stall delivery; the bar is ‘definitely improves code health’, not flawless.",
+ l:[["Code review · Google eng-practices","https://google.github.io/eng-practices/review/"]]},
+{n:"Architecture Decision Records", c:"Delivery & Ops", s:"Knowledge", o:"Michael Nygard · 2011",
+ d:"Short, numbered documents capturing each architecturally significant decision: context, decision, consequences; stored with the code, immutable once accepted.",
+ u:"any decision a future maintainer will ask ‘why on earth…’ about; ADRs are Chesterton’s fences with the reason written on them.",
+ w:"ADRs record decisions, not designs; keep them one page and write them when the decision happens, not archaeologically.",
+ l:[["Documenting Architecture Decisions · Nygard","https://cognitect.com/blog/2011/11/15/documenting-architecture-decisions"],["adr.github.io","https://adr.github.io/"]]},
+{n:"Diátaxis", c:"Delivery & Ops", s:"Knowledge", o:"Daniele Procida · diataxis.fr",
+ d:"Documentation has four distinct jobs: tutorials (learning), how-to guides (tasks), reference (information), and explanation (understanding). Mixing them is why docs disappoint.",
+ u:"structuring any docs site; most ‘bad docs’ are one type wearing another’s clothes.",
+ w:"don’t force four sections on day one; classify what users actually need first, then fill the grid.",
+ l:[["Diátaxis","https://diataxis.fr/"]]},
+{n:"DORA’s Four Keys", c:"Delivery & Ops", s:"Operating", o:"DORA / Accelerate research program",
+ d:"Evidence-based delivery metrics: deployment frequency, lead time for changes, change failure rate, and time to restore. Speed and stability, measured together, correlate rather than trade off.",
+ u:"measuring the delivery system, not the developers; improving the four keys means removing friction, not pressuring people.",
+ w:"Goodhart applies the moment keys become targets per team; use them as a flashlight, not a whip.",
+ l:[["DORA metrics · dora.dev","https://dora.dev/guides/dora-metrics/"],["Four Keys · Google Cloud","https://cloud.google.com/blog/products/devops-sre/using-the-four-keys-to-measure-your-devops-performance"]]},
+{n:"SRE: Golden Signals, SLOs & Error Budgets", c:"Delivery & Ops", s:"Operating", o:"Google SRE Book",
+ d:"Monitor latency, traffic, errors, and saturation; define Service Level Objectives users actually feel, and spend the error budget (the allowed unreliability) on shipping.",
+ u:"the framework that turns ‘is it up?’ into an engineering budget: too many incidents, freeze features; budget to spare, take risks.",
+ w:"SLOs on metrics users don’t feel produce theater; alert on symptoms (the signals), page on budget burn.",
+ l:[["Monitoring Distributed Systems · SRE Book","https://sre.google/sre-book/monitoring-distributed-systems/"]]},
+{n:"Canonical Log Lines", c:"Delivery & Ops", s:"Operating", o:"Stripe engineering",
+ d:"Emit one wide, structured log event per unit of work (request, job, transaction) carrying all key dimensions, so most questions are one query, not a join across scattered lines.",
+ u:"the highest-leverage observability practice per line of code; pairs with tracing, replaces log spelunking.",
+ w:"never log secrets or PII into the wide event: it is precisely the record everyone can query.",
+ l:[["Canonical log lines · Stripe","https://stripe.com/blog/canonical-log-lines"]]},
+
+/* ================= PERFORMANCE & CONCURRENCY ================= */
+{n:"Measure First", c:"Performance & Concurrency", s:"Performance", o:"Knuth’s 3% · the profiling discipline",
+ d:"Optimize only what a profiler names: the critical ~3% is real but never where intuition points. Everything else stays simple.",
+ u:"any performance work: the profile is the ticket of admission, and before/after numbers are the definition of done.",
+ w:"microbenchmarks lie (JIT, caches, dead-code elimination); measure the real workload where possible.",
+ l:[["Knuth in context · hlopko","https://hlopko.com/2019/08/03/premature-optimization/"]]},
+{n:"Amdahl’s Law", c:"Performance & Concurrency", s:"Performance", o:"Gene Amdahl · 1967",
+ d:"Speedup from parallelizing is capped by the serial fraction: if 10% must run serially, infinite cores still top out at 10×.",
+ u:"before scaling out: find and shrink the serial fraction (locks, single queues, coordination); that is where the ceiling lives.",
+ w:"applies per workload, and coordination overhead makes real curves worse than the formula’s optimism.",
+ l:[["Amdahl’s law · Wikipedia","https://en.wikipedia.org/wiki/Amdahl%27s_law"]]},
+{n:"Share Memory by Communicating", c:"Performance & Concurrency", s:"Concurrency", o:"Go proverb · go.dev",
+ d:"“Do not communicate by sharing memory; instead, share memory by communicating”: pass ownership of data through channels/messages so only one goroutine touches it at a time.",
+ u:"designing concurrent code: ownership transfer replaces lock choreography; the type system or convention tracks who may touch what.",
+ w:"channels are not free and can deadlock too; for tiny critical sections a mutex is simpler and faster. The principle is about ownership clarity.",
+ l:[["Share Memory By Communicating · Go blog","https://go.dev/blog/codelab-share"]]},
+{n:"Structured Concurrency", c:"Performance & Concurrency", s:"Concurrency", o:"Nathaniel J. Smith · “Go statement considered harmful” · 2018",
+ d:"Concurrent tasks live inside a scope that outlives none of them: children finish or cancel before the scope exits, so errors propagate and nothing leaks into the void.",
+ u:"any spawned work: nurseries/task groups make cancellation, timeouts, and error handling composable instead of ad hoc.",
+ w:"fire-and-forget still exists at the edges (servers’ accept loops); model it as an explicitly owned long-lived scope, not an orphan.",
+ l:[["Notes on structured concurrency · njs","https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/"]]},
+{n:"Bound Everything", c:"Performance & Concurrency", s:"Concurrency", o:"TigerStyle · Power of 10 rule 2",
+ d:"Every queue, pool, buffer, and loop gets a fixed upper bound; unbounded anything is a latent outage; backpressure is a feature you design, not an accident you discover.",
+ u:"sizing any concurrent structure: pick the limit, define what happens at the limit (block, shed, degrade), and test at the limit.",
+ w:"a bound without a policy is just a different crash; the policy at saturation is the actual design decision.",
+ l:[["TIGER_STYLE.md","https://github.com/tigerbeetle/tigerbeetle/blob/main/docs/TIGER_STYLE.md"],["Power of 10 (PDF)","https://spinroot.com/gerard/pdf/P10.pdf"]]},
+
+/* ================= PRAGMATISM & TACTICS ================= */
+{n:"The Pragmatic Programmer Ethos", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Andrew Hunt & David Thomas · 1999 / 20th-anniv. 2019",
+ d:"Care about your craft and think about your work: take responsibility (“provide options, don’t make lame excuses”), invest in your knowledge portfolio, and be a catalyst for change: stone-soup style, show a taste of what’s possible.",
+ u:"the operating system for everything tactical below; the book’s 100 tips are a career-long checklist.",
+ w:"pragmatism means judgment, not shortcuts; the same book demands DRY, contracts, and ruthless testing.",
+ l:[["Pragmatic Programmer tips","https://pragprog.com/tips/"],["20th Anniversary Edition","https://pragprog.com/titles/tpp20/the-pragmatic-programmer-20th-anniversary-edition/"]]},
+{n:"No Broken Windows", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Hunt & Thomas · The Pragmatic Programmer",
+ d:"“Don’t live with broken windows”: visible neglect (bad designs, wrong decisions, poor code left unfixed) normalizes decay and invites more. Fix small rot fast, or at least board it up visibly.",
+ u:"triaging small messes: the cost of the fix is rarely the point; the signal to the team is.",
+ w:"the inverse holds too: pristine codebases stay pristine because nobody wants to be the first window.",
+ l:[["Pragmatic Programmer tips","https://pragprog.com/tips/"],["Quick reference","https://www.khoury.northeastern.edu/home/lieber/courses/csg110/sp08/Pragmatic%20Quick%20Reference.htm"]]},
+{n:"Good-Enough Software", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Ed Yourdon · IEEE Software 1995 · adopted by the Pragmatic Programmer",
+ d:"“Make quality a requirements issue”: involve users in deciding the quality/scope/time trade-off deliberately, and know when to stop polishing; great software today often beats perfect software next year.",
+ u:"scoping real releases; ‘good enough’ is a negotiated, explicit bar, not whatever shipped.",
+ w:"this is about trade-offs the user chose, never silent corner-cutting; undisclosed ‘good enough’ is just bad.",
+ l:[["When Good Enough Software Is Best · Yourdon (ACM)","https://dl.acm.org/doi/10.1109/52.382191"],["Pragmatic Programmer tips","https://pragprog.com/tips/"]]},
+{n:"Tracer Bullets", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Hunt & Thomas · The Pragmatic Programmer",
+ d:"“Use tracer bullets to find the target”: build a thin but real end-to-end slice through every layer first, then thicken it under continuous feedback. Unlike a prototype, tracer code is kept.",
+ u:"new systems with unknowns in every layer; the skeleton proves the architecture while there’s still time to aim differently.",
+ w:"distinguish from spikes/prototypes: those are for learning and get thrown away; tracer code must meet production standards.",
+ l:[["Pragmatic Programmer tips","https://pragprog.com/tips/"],["Quick reference","https://www.khoury.northeastern.edu/home/lieber/courses/csg110/sp08/Pragmatic%20Quick%20Reference.htm"]]},
+{n:"Rubber Duck Debugging", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Popularized by The Pragmatic Programmer · 1999",
+ d:"Explain the code line by line to someone (or something) that can’t answer. Verbalizing forces the assumptions into the open, where the wrong one becomes obvious.",
+ u:"stuck past the fifteen-minute mark; the duck works because articulation is the debugger.",
+ w:"if explaining it aloud doesn’t crack it, write it down: a good bug report to a colleague is the duck’s final form.",
+ l:[["Rubber duck debugging · Wikipedia","https://en.wikipedia.org/wiki/Rubber_duck_debugging"]]},
+{n:"“select” Isn’t Broken", c:"Pragmatism & Tactics", s:"Pragmatic craft", o:"Hunt & Thomas · via Atwood’s “It’s Always Your Fault”",
+ d:"When you’re sure the compiler, OS, or library is buggy: it isn’t. The bug is in your code, statistically and overwhelmingly. Suspect yourself first and prove it with a minimal case.",
+ u:"any ‘impossible’ bug; the discipline of assuming your own fault finds it faster than the conspiracy theory does.",
+ w:"platform bugs do exist; earn that conclusion with a reduced reproduction, then file it upstream properly.",
+ l:[["It’s Always Your Fault · Coding Horror","https://blog.codinghorror.com/the-first-rule-of-programming-its-always-your-fault/"]]},
+
+{n:"Do the Simplest Thing That Could Possibly Work", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Ward Cunningham & Kent Beck · XP",
+ d:"When unsure how to proceed, ask what the simplest thing that could possibly work is; then do that, and let real feedback drive the next elaboration.",
+ u:"paralyzed between three clever designs: the simple one teaches you which of the others you actually need.",
+ w:"‘could possibly work’ still means work; it’s a discipline against speculation, not against thinking.",
+ l:[["c2 wiki","http://wiki.c2.com/?DoTheSimplestThingThatCouldPossiblyWork="],["Cunningham interview · artima","https://www.artima.com/articles/the-simplest-thing-that-could-possibly-work"]]},
+{n:"Spike Solution", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Extreme Programming · extremeprogramming.org",
+ d:"A small, timeboxed, throwaway experiment to answer one risky question: explore the unknown, harvest the knowledge, delete the code.",
+ u:"estimating or designing around a technical unknown; an afternoon’s spike beats a week’s debate.",
+ w:"the discipline is the deletion: a spike that ships is a prototype in production wearing a lab coat.",
+ l:[["Spike solution · XP rules","http://www.extremeprogramming.org/rules/spike.html"],["Spike Solutions · Shore","https://www.jamesshore.com/v2/books/aoad1/spike_solutions"]]},
+{n:"Walking Skeleton", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Alistair Cockburn · via 97 Things Every Software Architect Should Know",
+ d:"A tiny implementation that performs one small end-to-end function through all architectural layers; built, deployed, and tested first, then grown feature by feature.",
+ u:"project kickoff: it forces the build pipeline, deployment, and integration risks to the front, where they’re cheap.",
+ w:"keep the skeleton walking: if it can’t deploy green at all times, you’ve lost the point of having it.",
+ l:[["Start with a Walking Skeleton · 97 Things","https://www.oreilly.com/library/view/97-things-every/9780596800611/ch60.html"],["c2 wiki","https://wiki.c2.com/?WalkingSkeleton="]]},
+{n:"Make the Change Easy, Then Make the Easy Change", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Kent Beck · applied as preparatory refactoring (Fowler)",
+ d:"“For each desired change, make the change easy (warning: this may be hard), then make the easy change”: refactor the ground first so the feature lands as a small, obvious diff.",
+ u:"a feature that fights the current structure; the preparatory refactoring ships separately and safely under tests.",
+ w:"keep the two commits distinct; mixing the restructuring with the behavior change makes both unreviewable.",
+ l:[["Preparatory refactoring example · Fowler","https://martinfowler.com/articles/preparatory-refactoring-example.html"]]},
+{n:"Opportunistic Refactoring & the Boy Scout Rule", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Robert C. Martin (97 Things) · Martin Fowler (bliki)",
+ d:"“Leave the campground cleaner than you found it”: whenever you touch code, make it a little better (rename the misleading variable, extract the tangled block) as part of the work, not a separate project.",
+ u:"the compounding-interest answer to tech debt: continuous small payments beat rare big refactoring festivals.",
+ w:"scope discipline: a two-line cleanup is a courtesy, a drive-by rewrite in a feature PR is a review hazard (Chesterton applies).",
+ l:[["The Boy Scout Rule · 97 Things","https://www.oreilly.com/library/view/97-things-every/9780596809515/ch08.html"],["Opportunistic Refactoring · Fowler","https://martinfowler.com/bliki/OpportunisticRefactoring.html"]]},
+{n:"If It Hurts, Do It More Often", c:"Pragmatism & Tactics", s:"Tactical moves", o:"Martin Fowler · “Frequency Reduces Difficulty”",
+ d:"Painful activities (integration, releases, upgrades) hurt in proportion to how rarely you do them: batch size grows, feedback shrinks, skills atrophy. Raising the frequency shrinks each dose until it’s routine.",
+ u:"the logic behind CI, small releases, and dependency-update bots; if a task is dreaded, schedule it weekly, not yearly.",
+ w:"applies to batchable pain, not all pain; doing a genuinely broken process more often just breaks you more often; fix the process too.",
+ l:[["Frequency Reduces Difficulty · Fowler","https://martinfowler.com/bliki/FrequencyReducesDifficulty.html"]]},
+
+{n:"Technical Debt", c:"Pragmatism & Tactics", s:"Process wisdom", o:"Ward Cunningham · OOPSLA 1992 · elaborated by Fowler",
+ d:"Cunningham’s metaphor: shipping with a shortcut is borrowing: fine, like debt is fine, if taken deliberately and repaid; unpaid, the interest (every future change costs more) compounds until progress stalls.",
+ u:"making trade-offs legible to non-engineers: name the loan, record it (an ADR works), schedule the repayment.",
+ w:"the metaphor covers deliberate, prudent shortcuts; plain sloppiness isn’t debt, it’s vandalism, and calling it debt launders it.",
+ l:[["Technical Debt · Fowler bliki","https://martinfowler.com/bliki/TechnicalDebt.html"],["Intro to the concept · Agile Alliance (PDF)","https://www.agilealliance.org/wp-content/uploads/2016/05/IntroductiontotheTechnicalDebtConcept-V-02.pdf"]]},
+{n:"The Agile Manifesto’s Four Values", c:"Pragmatism & Tactics", s:"Process wisdom", o:"17 signatories · Snowbird · 2001",
+ d:"Individuals and interactions over processes and tools; working software over comprehensive documentation; customer collaboration over contract negotiation; responding to change over following a plan; “while there is value in the items on the right, we value the items on the left more.”",
+ u:"the original text is a corrective to ceremony in both directions; reread it whenever ‘agile’ has become a process with more tools than interactions.",
+ w:"‘over’ is not ‘instead of’; the right-hand items are explicitly valuable: the manifesto ranks, it doesn’t abolish.",
+ l:[["agilemanifesto.org","https://agilemanifesto.org/"]]},
+{n:"Second-System Effect", c:"Pragmatism & Tactics", s:"Process wisdom", o:"Fred Brooks · The Mythical Man-Month · 1975",
+ d:"“The second is the most dangerous system a man ever designs”: after a disciplined first system, designers unload every deferred embellishment onto its successor, over-engineering it into trouble.",
+ u:"any v2, rewrite, or ‘platform’ project: keep a public list of rejected embellishments and make restraint the explicit goal.",
+ w:"pairs with Gall’s Law: the safe second system evolves from the working first one instead of replacing it wholesale.",
+ l:[["Second-system effect · Wikipedia","https://en.wikipedia.org/wiki/Second-system_effect"],["The Mythical Man-Month · Wikipedia","https://en.wikipedia.org/wiki/The_Mythical_Man-Month"]]},
+{n:"Law of Triviality (Bikeshedding)", c:"Pragmatism & Tactics", s:"Process wisdom", o:"C. Northcote Parkinson · 1957",
+ d:"Groups spend attention in inverse proportion to a topic’s importance: the nuclear plant is approved in minutes, the bike shed’s color takes an hour, because everyone can hold an opinion about the shed.",
+ u:"structuring reviews and RFCs: timebox the trivial, route paint-color decisions to one owner, and spend the meeting on the reactor.",
+ w:"dismissing a concern as bikeshedding is itself a move in the game; check whether it’s genuinely trivial before wielding the word.",
+ l:[["Law of triviality · Wikipedia","https://en.wikipedia.org/wiki/Law_of_triviality"]]},
+{n:"Cargo-Cult Programming", c:"Pragmatism & Tactics", s:"Process wisdom", o:"Jargon derived from Feynman’s “cargo cult science” (1974)",
+ d:"Ritually including code, patterns, or process because successful projects had them: runways and coconut headsets, no planes. Form without the understanding that made the form work.",
+ u:"as a self-check: for every convention you copy (this annotation, that folder layout, sprints themselves), can you state what breaks without it?",
+ w:"the cure is Chesterton’s fence run in reverse: learn why the original worked before importing its shape.",
+ l:[["Cargo cult programming · Wikipedia","https://en.wikipedia.org/wiki/Cargo_cult_programming"],["Jargon File","https://www.catb.org/jargon/html/C/cargo-cult-programming.html"]]},
+{n:"Five Whys", c:"Pragmatism & Tactics", s:"Process wisdom", o:"Taiichi Ohno · Toyota Production System",
+ d:"Ask ‘why?’ repeatedly (about five times) to walk from a symptom to a root cause worth fixing: the fuse blew → why → why → the pump lacks a strainer.",
+ u:"incident analysis and stubborn bugs; the fifth why usually lands in process or design, not in the person nearest the failure.",
+ w:"naive use stops at a comfortable why or picks one causal chain of many; branch when reality branches, and never let it terminate at ‘human error’.",
+ l:[["Five whys · Wikipedia","https://en.wikipedia.org/wiki/Five_whys"],["5 Whys · Lean Enterprise Institute","https://www.lean.org/lexicon-terms/5-whys/"]]},
+{n:"Blameless Postmortems", c:"Pragmatism & Tactics", s:"Process wisdom", o:"Google SRE Book · postmortem culture",
+ d:"Analyze incidents on the assumption that everyone acted reasonably on the information they had: name the systemic causes, never the operator, because blame buys silence, and silence buys repeat incidents.",
+ u:"after every user-visible incident; the artifact is a written record of causes and prioritized prevention work.",
+ w:"blameless doesn’t mean consequence-free or vague; it means the ‘why’ chain ends in systems and incentives, not in a scapegoat.",
+ l:[["Postmortem Culture · SRE Book","https://sre.google/sre-book/postmortem-culture/"]]},
+/* ================= DESIGN PATTERNS: MODERN SUCCESSORS ================= */
+{n:"Norvig: Patterns as Missing Language Features", c:"Design Patterns", s:"Modern successors", o:"Peter Norvig · 1996",
+ d:"Norvig's famous finding: 16 of the 23 GoF patterns become invisible or radically simpler in dynamic languages. A pattern you keep re-implementing can be a sign your language lacks a feature, not a sign of good design.",
+ u:"reading any pattern: ask which language feature would dissolve it (first-class functions dissolve Strategy and Command; modules dissolve Singleton).",
+ w:"‘simpler in Lisp’ does not mean ‘unnecessary in Java’; the pattern still names a real tension in languages that have it.",
+ l:[["Design Patterns in Dynamic Programming (PDF)","https://norvig.com/design-patterns/design-patterns.pdf"],["c2 discussion","https://kidneybone.com/c2/wiki/DesignPatternsInDynamicProgramming"]]},
+{n:"Functional Replacements for GoF", c:"Design Patterns", s:"Modern successors", o:"Scott Wlaschin · “Functional Programming Design Patterns”",
+ d:"Wlaschin's mapping of the catalog onto core FP: Strategy and Command become plain functions, Decorator becomes function composition, Iterator becomes lazy sequences, Visitor becomes pattern matching over sum types.",
+ u:"working in TypeScript, Rust, Kotlin, or F#: reach for the language feature before the class diagram.",
+ w:"FP has its own pattern vocabulary (functors, monads, folds); the complexity moves, it doesn't vanish.",
+ l:[["fppatterns · Wlaschin","https://fsharpforfunandprofit.com/fppatterns/"],["Talk · InfoQ","https://www.infoq.com/presentations/fp-design-patterns/"]]},
+{n:"Dependency Injection & the Composition Root", c:"Design Patterns", s:"Modern successors", o:"Martin Fowler · 2004",
+ d:"Fowler's essay named the pattern that replaced Singleton and Service Locator: components declare their dependencies, and one composition root assembles the object graph (constructor injection preferred).",
+ u:"everywhere, with or without a framework; DI without a container is just passing arguments in one well-chosen place.",
+ w:"containers can hide the object graph they were meant to clarify; magic resolution is Service Locator wearing a costume.",
+ l:[["Inversion of Control Containers and the DI pattern","https://martinfowler.com/articles/injection.html"],["IoC · Wikipedia","https://en.wikipedia.org/wiki/Inversion_of_control"]]},
+{n:"Statecharts", c:"Design Patterns", s:"Modern successors", o:"David Harel · Science of Computer Programming · 1987",
+ d:"Harel extended finite state machines with hierarchy, orthogonal (parallel) regions, and history: the State pattern industrialized. XState and SCXML are direct descendants.",
+ u:"UI and workflow logic beyond a handful of states; nested and parallel states end the boolean-flag explosion.",
+ w:"keep charts visualizable; a statechart nobody can read is a nested if wearing a diagram.",
+ l:[["Statecharts: A Visual Formalism (PDF)","https://www.state-machine.com/doc/Harel87.pdf"],["Learning statecharts with XState","https://vanslaars.io/garden/learning-state-machines/"]]},
+{n:"Observables, Streams & Signals", c:"Design Patterns", s:"Modern successors", o:"ReactiveX lineage → TC39 Signals proposal",
+ d:"Observer evolved twice: Rx-style observables added composition, cancellation, and backpressure to event streams; fine-grained signals (Solid, Vue, Angular, and a TC39 proposal) track dependencies automatically for derived state.",
+ u:"streams for events over time; signals for current values that other values derive from. Manual subscribe/unsubscribe Observer is the leak factory both replace.",
+ w:"picking streams for state or signals for event firehoses recreates the original mess; the TC39 proposal is still in flux (status as of mid-2026: not yet standard).",
+ l:[["Backpressure · ReactiveX","https://reactivex.io/documentation/operators/backpressure.html"],["tc39/proposal-signals","https://github.com/tc39/proposal-signals"]]},
+{n:"Middleware Pipelines", c:"Design Patterns", s:"Modern successors", o:"Express/Koa lineage",
+ d:"Chain of Responsibility modernized: an ordered pipeline of small (context, next) functions handling cross-cutting request concerns. The de facto architecture of every web framework.",
+ u:"auth, logging, parsing, rate limiting; middleware ordering is real architecture, so document it.",
+ w:"middlemen couple invisibly through the shared context; one middleware that swallows errors silently breaks the whole chain.",
+ l:[["Koa","https://koajs.com/"],["Basic middleware pattern in JS","https://muniftanjim.dev/blog/basic-middleware-pattern-in-javascript/"]]},
+{n:"Patterns of Distributed Systems", c:"Design Patterns", s:"Modern successors", o:"Unmesh Joshi · Fowler Signature Series",
+ d:"The modern heir to the catalog tradition: Write-Ahead Log, Quorum, Leader election, Versioned Value, Idempotent Receiver, documented from real systems like Kafka, etcd, and Cassandra.",
+ u:"when today's hard problems are distributed, this is the pattern language to check before inventing your own consensus.",
+ w:"these patterns compose subtly; copying one without its stated prerequisites (ordering, durability) ships a bug with a famous name.",
+ l:[["Catalog · martinfowler.com","https://martinfowler.com/articles/patterns-of-distributed-systems/"],["Book","https://martinfowler.com/books/patterns-distributed.html"]]},
+{n:"Enterprise Integration Patterns", c:"Design Patterns", s:"Modern successors", o:"Gregor Hohpe & Bobby Woolf · 2003",
+ d:"The messaging catalog: channels, routers, translators, splitters, aggregators, dead-letter queues. Still the shared vocabulary behind Kafka-era integration and every broker since.",
+ u:"designing anything message-driven; the 65 patterns name what you will otherwise rediscover the hard way.",
+ w:"written in the ESB era; the patterns survive, but centralized smart-pipe architectures they rode in on mostly did not (smart endpoints, dumb pipes).",
+ l:[["enterpriseintegrationpatterns.com","https://www.enterpriseintegrationpatterns.com/"],["Book page · Fowler","https://martinfowler.com/books/eip.html"]]},
+
+/* ================= ANTI-PATTERNS ================= */
+{n:"Big Ball of Mud", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"Brian Foote & Joseph Yoder · 1997", ul:"Spot it", wl:"Escape",
+ d:"“A haphazardly structured, sprawling, sloppy, duct-tape-and-baling-wire, spaghetti-code jungle.” The paper's uncomfortable thesis: this is the de facto standard architecture, because real forces (deadlines, turnover, growth) push toward it.",
+ u:"no discernible boundaries; every change touches everything; the architecture diagram is aspirational fiction.",
+ w:"incremental consolidation along seams (strangler style); big-bang rewrites usually rebuild the mud with newer bricks (see Gall).",
+ l:[["Big Ball of Mud · laputan.org","https://www.laputan.org/mud/"],["Original paper (PDF)","https://hillside.net/plop/plop97/Proceedings/foote.pdf"]]},
+{n:"God Object (The Blob)", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"AntiPatterns · Brown, Malveau, McCormick & Mowbray · 1998", ul:"Spot it", wl:"Escape",
+ d:"One class hoards most of the knowledge and behavior while everything else is a data bag; every feature request routes through the same thousand-line file.",
+ u:"a class named Manager, Processor, or Util that imports half the codebase and appears in every stack trace.",
+ w:"extract along responsibilities using Information Expert; move behavior to the data it needs, one seam at a time.",
+ l:[["AntiPatterns · ACM","https://dl.acm.org/doi/10.5555/280487"],["Anti-patterns overview · Wikibooks","https://en.wikibooks.org/wiki/Introduction_to_Software_Engineering/Architecture/Anti-Patterns"]]},
+{n:"Anemic Domain Model", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"Martin Fowler · 2003", ul:"Spot it", wl:"Escape",
+ d:"Model-shaped classes with getters and setters but no behavior, while the logic lives in a layer of ‘service’ scripts. Fowler: it is “contrary to the basic idea of object-oriented design”.",
+ u:"entities that are pure data bags plus a service layer that reads like procedural code operating on them.",
+ w:"move the behavior onto the model it belongs to; or admit the domain is simple and choose Transaction Script honestly.",
+ l:[["AnemicDomainModel · Fowler","https://martinfowler.com/bliki/AnemicDomainModel.html"],["Wikipedia","https://en.wikipedia.org/wiki/Anemic_domain_model"]]},
+{n:"Golden Hammer", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"AntiPatterns · 1998", ul:"Spot it", wl:"Escape",
+ d:"“When all you have is a hammer, everything looks like a nail”: the team's favorite technology applied to every problem regardless of fit.",
+ u:"the same tool appears in every design regardless of the question; alternatives are dismissed without evaluation.",
+ w:"spend innovation tokens deliberately (see Choose Boring Technology) and require one written alternative per big decision (an ADR forces this).",
+ l:[["Anti-patterns overview · Wikibooks","https://en.wikibooks.org/wiki/Introduction_to_Software_Engineering/Architecture/Anti-Patterns"]]},
+{n:"Lava Flow", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"AntiPatterns · 1998", ul:"Spot it", wl:"Escape",
+ d:"Dead code and forgotten experiments hardened into the codebase like cooled lava: nobody remembers why it exists, so nobody dares remove it.",
+ u:"commented-out blocks with fossil timestamps, unreachable branches, flags nobody flips, ‘temporary’ code with tenure.",
+ w:"run Chesterton's fence forward: learn why it exists (git blame, tests), then delete boldly; version control remembers so your codebase doesn't have to.",
+ l:[["Anti-patterns overview · Wikibooks","https://en.wikibooks.org/wiki/Introduction_to_Software_Engineering/Architecture/Anti-Patterns"]]},
+{n:"Distributed Monolith", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"Modern microservices folklore", ul:"Spot it", wl:"Escape",
+ d:"Services that must deploy together, share a database, or call each other in synchronous chains: microservice operational cost with monolith coupling. The worst of both worlds.",
+ u:"a ‘simple’ change opens pull requests in four repos; one service's deploy breaks another; the ‘independent’ services share tables.",
+ w:"database per service, async events, and honest boundaries; or merge back into a modular monolith and stop paying network tax for function calls.",
+ l:[["Distributed monolith · vFunction","https://vfunction.com/blog/distributed-monolith-architecture/"],["Is your microservice a distributed monolith? · Gremlin","https://www.gremlin.com/blog/is-your-microservice-a-distributed-monolith"]]},
+{n:"Speculative Generality", c:"Anti-Patterns & Rethinks", s:"Named anti-patterns", o:"Code smell · Fowler & Beck's Refactoring", ul:"Spot it", wl:"Escape",
+ d:"Hooks, parameters, abstract classes, and plugin points built for futures that never arrive. YAGNI's shadow, cast in class hierarchies.",
+ u:"interfaces with one implementation, parameters always passed the same value, ‘extensibility’ nobody has extended.",
+ w:"delete unused flexibility (version control remembers); reintroduce it at the third real use (rule of three).",
+ l:[["Speculative Generality · refactoring.guru","https://refactoring.guru/smells/speculative-generality"]]},
+
+/* ================= RETHINKS ================= */
+{n:"Kay's OOP Isn't Java's OOP", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Alan Kay · OOPSLA 1997 keynote · 2003 email to Stefan Ram", ul:"Takeaway", wl:"Nuance",
+ d:"The man who coined the term: “OOP to me means only messaging, local retention and protection and hiding of state-process, and extreme late-binding of all things.” And: “I invented the term Object-Oriented, and I can tell you I did not have C++ in mind.” Class hierarchies and inheritance are the part he didn't mean.",
+ u:"judge ‘OOP’ code by encapsulation and message-like boundaries, not class count; Erlang processes and actors are arguably closer to Kay's vision than Java class trees.",
+ w:"this is an argument about lineage and emphasis, not a proof that class-based OOP fails; Java-style OOP built a lot of working software.",
+ l:[["Alan Kay and OO Programming · Poe","http://curtispoe.org/articles/alan-kay-and-oo-programming.html"],["The big idea is messaging","https://blakecrosley.com/blog/engineering-philosophy-alan-kay"]]},
+{n:"The Banana, the Gorilla, and the Jungle", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Joe Armstrong · Coders at Work", ul:"Takeaway", wl:"Nuance",
+ d:"Armstrong on inheritance-heavy OOP: “you wanted a banana but what you got was a gorilla holding the banana and the entire jungle.” Implicit environment rides along with every inherited class.",
+ u:"prefer explicit, minimal dependencies; note that Go and Rust shipped without implementation inheritance at all, and few miss it.",
+ w:"the quote targets entangled hierarchies, not objects as such; small, shallow, composed objects don't drag jungles.",
+ l:[["You wanted a banana · John D. Cook","https://www.johndcook.com/blog/2011/07/19/you-wanted-banana/"]]},
+{n:"REST-as-Practiced Isn't Fielding's REST", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Roy Fielding · 2008", ul:"Takeaway", wl:"Nuance",
+ d:"Fielding, who defined REST in his dissertation, wrote “REST APIs must be hypertext-driven” and objected to HTTP+JSON RPC-style APIs calling themselves REST. Most ‘REST’ APIs sit at Richardson level 2 and ignore hypermedia entirely.",
+ u:"name your style honestly (an HTTP API is a fine thing to build) and adopt hypermedia only where clients will actually follow links.",
+ w:"same species as the Kay case: a coined term drifted from its coiner. The drifted meaning won the industry; knowing both saves you from cargo-culting either.",
+ l:[["REST APIs must be hypertext-driven · Fielding","https://roy.gbiv.com/untangled/2008/rest-apis-must-be-hypertext-driven"],["HATEOAS · Wikipedia","https://en.wikipedia.org/wiki/HATEOAS"]]},
+{n:"Waterfall Was a Warning, Not a Recommendation", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Winston Royce · 1970", ul:"Takeaway", wl:"Nuance",
+ d:"The paper cited as waterfall's origin shows the single-pass diagram and immediately calls that implementation “risky and invites failure”, then recommends iteration, early prototyping (“do it twice”), and heavy customer involvement.",
+ u:"the field adopted the strawman figure and skipped the caveats; read the primary source you cite (this page's whole reason for linking them).",
+ w:"Royce still valued documentation and upfront thinking far more than agile folklore admits; the paper fits neither camp's slogan.",
+ l:[["Royce 1970 (PDF)","https://www.praxisframework.org/files/royce1970.pdf"],["Reading the original paper · pragtob","https://pragtob.wordpress.com/2012/03/02/why-waterfall-was-a-big-misunderstanding-from-the-beginning-reading-the-original-paper/"]]},
+{n:"Is TDD Dead?", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"DHH vs. Kent Beck & Martin Fowler · 2014", ul:"Takeaway", wl:"Nuance",
+ d:"Heinemeier Hansson declared “TDD is dead. Long live testing.”, arguing test-first dogma produces test-induced design damage; Beck and Fowler answered in a recorded hangout series mapping where TDD earns its keep and where it distorts design.",
+ u:"treat TDD as a tool with a domain (crisp units, evolving APIs) rather than a moral test; system-level tests are a legitimate primary strategy.",
+ w:"both sides agree on the destination (confidence, feedback); the fight is about the route. Dogma in either direction is the actual casualty.",
+ l:[["TDD is dead. Long live testing. · DHH","https://dhh.dk/2014/tdd-is-dead-long-live-testing.html"],["Was TDD ever alive?","https://pasemes.github.io/blog/was-tdd-ever-alive/"]]},
+{n:"Clean Code Under Fire", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"qntm · Casey Muratori (2023)", ul:"Takeaway", wl:"Nuance",
+ d:"qntm's close reading argues the book's own examples violate its rules and haven't aged well; Muratori benchmarked its polymorphism-and-tiny-functions advice at large multiples slower than data-oriented equivalents on numeric kernels.",
+ u:"extract the durable core (meaningful names, small focused units, honest tests) and drop the absolutism; performance-sensitive code plays by measured rules, not style rules.",
+ w:"Muratori's numbers come from a compute kernel, the worst case for dynamic dispatch; most business code is bounded by I/O, not vtables. Context decides.",
+ l:[["Stop recommending Clean Code · qntm","https://qntm.org/clean"],["“Clean” Code, Horrible Performance · Muratori","https://www.computerenhance.com/p/clean-code-horrible-performance"]]},
+{n:"CUPID over SOLID", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Dan North · cupid.dev", ul:"Takeaway", wl:"Nuance",
+ d:"North argues SOLID hardened into pass/fail dogma and proposes properties instead of principles: Composable, Unix philosophy, Predictable, Idiomatic, Domain-based. Properties grade on a spectrum; principles get argued about.",
+ u:"use CUPID as a code-review lens (“how composable, how idiomatic?”) alongside SOLID rather than as a replacement religion.",
+ w:"CUPID trades SOLID's false precision for vagueness of its own; ‘joyful’ isn't checkable either. Both are conversation starters, not linters.",
+ l:[["CUPID for joyful coding · North","https://dannorth.net/cupid-for-joyful-coding/"],["cupid.dev","https://cupid.dev/properties/"]]},
+{n:"The Monolith Strikes Back", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Fowler's Monolith First (2015) · Prime Video case (2023)", ul:"Takeaway", wl:"Nuance",
+ d:"Fowler observed that almost all successful microservice systems started as monoliths, while systems built as microservices from scratch ended in trouble. In 2023, Amazon's Prime Video team merged a serverless microservice pipeline back into a monolith and reported roughly 90% infrastructure cost reduction, widely covered as a pendulum moment.",
+ u:"distribution is a cost you pay for organizational scale and independent deployability, not a default architecture; modular monolith first, split at proven seams.",
+ w:"one team's workload isn't a universal verdict; the same report is also an argument for choosing the right compute model per workload.",
+ l:[["MonolithFirst · Fowler","https://martinfowler.com/bliki/MonolithFirst.html"],["Prime Video case coverage · DevClass (2023)","https://devclass.com/2023/05/05/reduce-costs-by-90-by-moving-from-microservices-to-monolith-amazon-internal-case-study-raises-eyebrows/"]]},
+{n:"The Typed-Language Evidence Fight", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Ray et al. (FSE 2014) vs. Berger et al. (TOPLAS 2019)", ul:"Takeaway", wl:"Nuance",
+ d:"A famous large-scale GitHub study associated functional and statically typed languages with fewer defects; a 2019 reproduction study failed to replicate most of the claims after correcting the methodology, and the original authors published a rebuttal in turn.",
+ u:"treat ‘studies prove my language is better’ claims with source-critical care; empirical software engineering is young and effect sizes here were small either way.",
+ w:"failed replication of one study is not proof of the opposite claim; type systems still earn their keep in this canon on mechanism (compile-time proof), not on that correlation.",
+ l:[["Reproduction study · TOPLAS 2019","https://dl.acm.org/doi/10.1145/3340571"],["Original authors' rebuttal (arXiv)","https://arxiv.org/pdf/1911.07393"]]},
+{n:"The Agile Industrial Complex", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"Martin Fowler (2018) · Ron Jeffries (2018)", ul:"Takeaway", wl:"Nuance",
+ d:"Fowler's State of Agile 2018 keynote names the Agile Industrial Complex: imposed frameworks, certified process, and tooling that invert the manifesto's first value. Jeffries, a manifesto signatory, advised developers to abandon capital-A ‘Agile’ and keep the ideas (his ‘dark scrum’ critique).",
+ u:"when the framework outranks the people using it, the manifesto itself says you've lost; measure ceremonies by whether the team would keep them voluntarily.",
+ w:"the critique targets the industry around agile, not iteration, feedback, or the manifesto; throwing those out is overcorrection.",
+ l:[["The State of Agile Software in 2018 · Fowler","https://martinfowler.com/articles/agile-aus-2018.html"],["Developers Should Abandon Agile · Jeffries","https://ronjeffries.com/articles/018-01ff/abandon-1/"]]},
+{n:"AI Pair Programming Meets the Evidence", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"DORA · Accelerate State of DevOps 2024", ul:"Takeaway", wl:"Nuance",
+ d:"DORA's 2024 report found rising AI adoption associated with gains in individual productivity and code quality perceptions, but with small decreases in software delivery throughput and stability: the tooling moved faster than the delivery discipline around it.",
+ u:"AI-generated code rides your existing safety nets; strengthen review, tests, and small-batch delivery first, then scale the assistant (as of the 2024 report; this evidence base is moving fast).",
+ w:"correlational survey data, not a controlled experiment; later reports and better integration practices may (and likely will) shift the picture.",
+ l:[["DORA 2024 report","https://dora.dev/research/2024/dora-report/"],["Throughput & stability analysis · RedMonk","https://redmonk.com/rstephens/2024/11/26/dora2024/"]]},
+
+/* ================= AI-ERA (2024-2026) ================= */
+{n:"Prompt Engineering", c:"Pragmatism & Tactics", s:"AI-era craft", o:"Canonized by DAIR.AI's Prompt Engineering Guide",
+ d:"The first-wave skill of the LLM era: phrasing instructions, examples, and output formats so a model does what you mean (zero-shot, few-shot, chain-of-thought). Canonized in community guides, then demoted from job title to table stakes within three years.",
+ u:"still the atomic layer: every agent turn bottoms out in a prompt, so clarity, worked examples, and explicit output contracts never stopped mattering.",
+ w:"brittle on its own: most of what looked like prompt problems were context problems, which is exactly why the successor terms exist.",
+ l:[["Prompt Engineering Guide · DAIR.AI","https://github.com/dair-ai/Prompt-Engineering-Guide"],["The guide's story · Saravia","https://elvissaravia.substack.com/p/the-prompt-engineering-guide"]]},
+{n:"Vibe Coding", c:"Pragmatism & Tactics", s:"AI-era craft", o:"Andrej Karpathy · February 2025",
+ d:"Karpathy's coinage: “fully give in to the vibes, embrace exponentials, and forget that the code even exists”. Conversational programming where AI output is accepted wholesale. Willison's useful boundary: if you reviewed and understood the code, that was AI-assisted programming, not vibe coding.",
+ u:"throwaway prototypes, personal tools, and spikes: it is the spike solution reborn, and as with spikes, the discipline is deleting.",
+ w:"unreviewed code in production is unowned code; a vibe-coded system fails Chesterton's fence by construction, because nobody knows why anything exists.",
+ l:[["Karpathy's original post","https://x.com/karpathy/status/1886192184808149383"],["Not all AI-assisted programming is vibe coding · Willison","https://simonwillison.net/2025/Mar/19/vibe-coding/"]]},
+{n:"Context Engineering", c:"Pragmatism & Tactics", s:"AI-era craft", o:"Named across 2025 · endorsed by Karpathy",
+ d:"Karpathy: “+1 for context engineering over prompt engineering”, the delicate art and science of filling the context window: retrieval, tools, memory, and structure for industrial-strength LLM systems, replacing prompt-tinkering as the working skill.",
+ u:"building anything agentic: curate what the model sees the way you would onboard a new engineer; the boundary disciplines on this page (schemas, trust, staleness) apply to context verbatim.",
+ w:"it inherits every information-architecture problem this catalog already names; the buffer is new, the failure modes are not.",
+ l:[["Karpathy on context engineering","https://x.com/karpathy/status/1937902205765607626"],["Context Engineering Guide","https://www.promptingguide.ai/guides/context-engineering-guide"]]},
+{n:"Spec-Driven Development", c:"Pragmatism & Tactics", s:"AI-era craft", o:"GitHub Spec Kit · 2025",
+ d:"The intent-first corrective to vibe coding: an executable specification drives AI implementation (specify, plan, break into tasks, implement), making the spec the artifact humans review, version, and regenerate code from.",
+ u:"AI-heavy delivery where review cannot keep pace with generation: move human judgment up to the spec, where one decision governs many diffs.",
+ w:"specs rot exactly like documentation unless they stay executable; this is TDD's oldest lesson wearing 2025 clothes.",
+ l:[["Spec-driven development · GitHub blog","https://github.blog/ai-and-ml/generative-ai/spec-driven-development-with-ai-get-started-with-a-new-open-source-toolkit/"],["github/spec-kit","https://github.com/github/spec-kit"]]},
+{n:"Harness Engineering", c:"Pragmatism & Tactics", s:"AI-era craft", o:"Named across 2026 · O'Reilly Radar, Osmani, Fowler's site",
+ d:"The scaffolding around the model: tools, permissions, memory, evals, retries, sandboxes, and observability that turn a chat loop into a dependable worker. The 2026 consensus is that the wrapper often drives more performance than the model inside it.",
+ u:"when agent quality plateaus, engineer the harness (what the agent can touch, see, and verify) before shopping for a bigger model.",
+ w:"a harness is a distributed system wearing a new name: least privilege, timeouts, idempotency, and limits from this canon apply to it verbatim.",
+ l:[["Agent Harness Engineering · O'Reilly Radar","https://www.oreilly.com/radar/agent-harness-engineering/"],["Harness engineering · martinfowler.com","https://martinfowler.com/articles/harness-engineering.html"]]},
+{n:"Loop Engineering", c:"Pragmatism & Tactics", s:"AI-era craft", o:"Named mid-2026 · the fourth shift after prompt, context, and harness",
+ d:"Designing the agent's iteration itself: plan-act-observe cycles, termination conditions, budgets, checkpoints, and escalation to humans. If the harness is the cage, loop engineering is the choreography inside it.",
+ u:"long-running agents: define what one round must accomplish, what ends the loop, and what evidence each iteration produces; an unbounded agent loop is an outage with an API bill.",
+ w:"young vocabulary with shifting definitions (as of mid-2026); the durable core is old wisdom, bounded loops and explicit exit conditions.",
+ l:[["Demystifying loop engineering · TechTalks","https://bdtechtalks.com/2026/06/22/ai-loop-engineering/"],["The four shifts · AI Builder Club","https://www.aibuilderclub.com/blog/prompt-context-harness-evolution"]]},
+{n:"MCP: Model Context Protocol", c:"Architecture", s:"Distributed & cloud", o:"Anthropic · November 2024 · open standard",
+ d:"An open protocol connecting AI assistants to tools and data, pitched as “a USB-C port for AI applications”: one adapter contract instead of N×M custom integrations, and industry-adopted within a year.",
+ u:"exposing systems to agents: it is ports-and-adapters for the AI era, so least privilege, schema validation, and idempotency apply to every tool you publish.",
+ w:"a protocol standardizes plumbing, not judgment: each MCP tool is a live trust boundary carrying prompt-injection and privilege risk.",
+ l:[["Introducing MCP · Anthropic","https://www.anthropic.com/news/model-context-protocol"],["MCP · Wikipedia","https://en.wikipedia.org/wiki/Model_Context_Protocol"]]},
+{n:"The METR Surprise", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"METR randomized controlled trial · July 2025", ul:"Takeaway", wl:"Nuance",
+ d:"A randomized trial of experienced open-source maintainers working on their own repositories: with AI tools allowed, tasks took 19% longer, while participants estimated afterwards that AI had made them about 20% faster. The perception gap is the headline result.",
+ u:"measure AI workflows against your own baseline instead of trusting felt speed; expert developers on familiar code are exactly where AI assistance is weakest.",
+ w:"one setting, early-2025 tools, expert maintainers on mature repos: METR itself cautions against generalizing and has since redesigned its follow-up experiments.",
+ l:[["METR study","https://metr.org/blog/2025-07-10-early-2025-ai-experienced-os-dev-study/"],["Paper (arXiv)","https://arxiv.org/abs/2507.09089"]]},
+{n:"DORA 2025: AI as Amplifier", c:"Anti-Patterns & Rethinks", s:"Rethinks & reversals", o:"DORA · State of AI-assisted Software Development · 2025", ul:"Takeaway", wl:"Nuance",
+ d:"The follow-up report reframes the 2024 result: AI amplifies what an organization already is. Teams with strong platforms and small batches see gains; weak systems see their dysfunction amplified; and most developers report daily AI use alongside only moderate trust in its output.",
+ u:"fix the delivery system first (the four keys still rule); AI multiplies your baseline in whichever direction it already points.",
+ w:"survey correlations again, in a fast-moving field: treat each year's report as a snapshot of practice, not settled physics.",
+ l:[["DORA 2025 report","https://dora.dev/dora-report-2025/"],["AI as amplifier · InfoQ","https://www.infoq.com/news/2025/09/dora-state-of-ai-in-dev-2025/"]]}
+];
+
+/* ---------- lineage DAG: year + predecessors ("!" prefix = challenges) ---------- */
+const LINEAGE = {
+"Law of Triviality (Bikeshedding)":{y:1957},
+"Amdahl’s Law":{y:1967},
+"Conway’s Law":{y:1968},
+"Waterfall Was a Warning, Not a Recommendation":{y:1970},
+"Information Hiding":{y:1972},
+"Knuth: Premature Optimization":{y:1974},
+"Measure First":{y:1974,p:["Knuth: Premature Optimization"]},
+"Cargo-Cult Programming":{y:1974},
+"High Cohesion, Low Coupling":{y:1974,p:["Information Hiding"]},
+"Saltzer & Schroeder’s Design Principles":{y:1975},
+"Fail-Safe Defaults / Fail Closed":{y:1975,p:["Saltzer & Schroeder’s Design Principles"]},
+"Least Privilege":{y:1975,p:["Saltzer & Schroeder’s Design Principles"]},
+"Gall’s Law":{y:1975},
+"Second-System Effect":{y:1975},
+"The Unix Philosophy":{y:1978},
+"Model–View–Controller":{y:1979},
+"Postel’s Law and Its Modern Reversal":{y:1980},
+"Brooks: No Silver Bullet":{y:1986,p:["Second-System Effect"]},
+"Liskov Substitution Principle":{y:1987},
+"Law of Demeter":{y:1987,p:["High Cohesion, Low Coupling"]},
+"Statecharts":{y:1987},
+"Open–Closed Principle":{y:1988},
+"Command–Query Separation":{y:1988},
+"Design by Contract":{y:1988},
+"Worse Is Better":{y:1989},
+"Technical Debt":{y:1992},
+"The Eight Fallacies of Distributed Computing":{y:1994},
+"The Gang of Four Catalog":{y:1994},
+"Composition over Inheritance":{y:1994,p:["The Gang of Four Catalog"]},
+"Program to an Interface, not an Implementation":{y:1994,p:["The Gang of Four Catalog"]},
+"Factory Method":{y:1994},"Abstract Factory":{y:1994},"Builder":{y:1994},"Prototype":{y:1994},"Singleton":{y:1994},
+"Adapter":{y:1994},"Bridge":{y:1994},"Composite":{y:1994},"Decorator":{y:1994},"Facade":{y:1994},"Flyweight":{y:1994},"Proxy":{y:1994},
+"Chain of Responsibility":{y:1994},"Command":{y:1994},"Interpreter":{y:1994},"Iterator":{y:1994},"Mediator":{y:1994},"Memento":{y:1994},
+"Observer":{y:1994},"State":{y:1994,p:["Statecharts"]},"Strategy":{y:1994},"Template Method":{y:1994},"Visitor":{y:1994},
+"Good-Enough Software":{y:1995},
+"Norvig: Patterns as Missing Language Features":{y:1996,p:["!The Gang of Four Catalog"]},
+"Big Ball of Mud":{y:1997},
+"GRASP: Nine Responsibility Principles":{y:1997,p:["High Cohesion, Low Coupling"]},
+"Kay's OOP Isn't Java's OOP":{y:1997,p:["!The Gang of Four Catalog"]},
+"God Object (The Blob)":{y:1998},
+"Golden Hammer":{y:1998},
+"Lava Flow":{y:1998},
+"Do the Simplest Thing That Could Possibly Work":{y:1998},
+"The Pragmatic Programmer Ethos":{y:1999},
+"No Broken Windows":{y:1999,p:["The Pragmatic Programmer Ethos"]},
+"Tracer Bullets":{y:1999,p:["The Pragmatic Programmer Ethos"]},
+"Rubber Duck Debugging":{y:1999,p:["The Pragmatic Programmer Ethos"]},
+"“select” Isn’t Broken":{y:1999,p:["The Pragmatic Programmer Ethos"]},
+"DRY: Don’t Repeat Yourself":{y:1999},
+"YAGNI: You Aren’t Gonna Need It":{y:1999,p:["Do the Simplest Thing That Could Possibly Work"]},
+"Spike Solution":{y:1999,p:["Do the Simplest Thing That Could Possibly Work"]},
+"Rule of Three":{y:1999},
+"Speculative Generality":{y:1999,p:["YAGNI: You Aren’t Gonna Need It"]},
+"Single Responsibility Principle":{y:2000,p:["High Cohesion, Low Coupling"]},
+"Interface Segregation Principle":{y:2000},
+"Dependency Inversion Principle":{y:2000,p:["Program to an Interface, not an Implementation"]},
+"CAP Theorem":{y:2000,p:["The Eight Fallacies of Distributed Computing"]},
+"Property-Based Testing":{y:2000},
+"The Agile Manifesto’s Four Values":{y:2001,p:["!Waterfall Was a Warning, Not a Recommendation"]},
+"Test-Driven Development":{y:2002,p:["Do the Simplest Thing That Could Possibly Work"]},
+"Value Objects & Money":{y:2002},
+"Repository":{y:2002},"Unit of Work":{y:2002},"Active Record vs Data Mapper":{y:2002},"Identity Map & Lazy Load":{y:2002},
+"Gateway, Remote Facade & DTO":{y:2002},"Special Case (Null Object)":{y:2002},"Optimistic vs Pessimistic Offline Lock":{y:2002},
+"Transaction Script vs Domain Model":{y:2002},"Service Layer":{y:2002},"Front Controller":{y:2002,p:["Model–View–Controller"]},
+"Test Doubles & Service Stubs":{y:2002},
+"KISS: Keep It Simple":{y:2003,p:["The Unix Philosophy"]},
+"Enterprise Integration Patterns":{y:2003,p:["The Gang of Four Catalog"]},
+"Anemic Domain Model":{y:2003,p:["Transaction Script vs Domain Model"]},
+"Domain-Driven Boundaries (Subdomains & Contexts)":{y:2003,p:["High Cohesion, Low Coupling","Conway’s Law"]},
+"Anti-Corruption Layer":{y:2003,p:["Domain-Driven Boundaries (Subdomains & Contexts)"]},
+"Crash-Only Software":{y:2003},
+"The Zen of Python":{y:2004,p:["The Unix Philosophy"]},
+"Fail Fast":{y:2004},
+"Easy to Use Correctly, Hard to Use Incorrectly":{y:2004},
+"Dependency Injection & the Composition Root":{y:2004,p:["!Singleton","Program to an Interface, not an Implementation"]},
+"Strangler Fig":{y:2004,p:["Gall’s Law","Big Ball of Mud"]},
+"Hexagonal Architecture (Ports & Adapters)":{y:2005,p:["Program to an Interface, not an Implementation","Dependency Injection & the Composition Root"]},
+"NASA’s Power of 10":{y:2006,p:["Design by Contract","Turing's Limit (Undecidability)"]},
+"Assertions in Anger":{y:2006,p:["NASA’s Power of 10","Design by Contract"]},
+"Circuit Breaker":{y:2007,p:["The Eight Fallacies of Distributed Computing"]},
+"Bulkhead":{y:2007,p:["Circuit Breaker"]},
+"REST-as-Practiced Isn't Fielding's REST":{y:2008},
+"The Banana, the Gorilla, and the Jungle":{y:2009,p:["Composition over Inheritance"]},
+"The Test Pyramid":{y:2009,p:["Test-Driven Development"]},
+"Don’t Mock What You Don’t Own":{y:2009,p:["Test-Driven Development"]},
+"Walking Skeleton":{y:2009,p:["Tracer Bullets"]},
+"Model Absence Explicitly (Option/Maybe)":{y:2009,p:["Hoare’s Billion-Dollar Mistake"]},
+"Hoare’s Billion-Dollar Mistake":{y:2009},
+"Richardson Maturity Model":{y:2010,p:["REST-as-Practiced Isn't Fielding's REST"]},
+"CQRS":{y:2010,p:["Command–Query Separation"]},
+"Event Sourcing":{y:2010,p:["CQRS"]},
+"Share Memory by Communicating":{y:2010},
+"Middleware Pipelines":{y:2010,p:["Chain of Responsibility","The Unix Philosophy"]},
+"Input Validation & Output Encoding":{y:2010,p:["Saltzer & Schroeder’s Design Principles","!Postel’s Law and Its Modern Reversal"]},
+"Parameterized Queries":{y:2010,p:["Input Validation & Output Encoding","The Stored-Program Computer"]},
+"The Twelve-Factor App":{y:2011},
+"Secrets Hygiene":{y:2011,p:["The Twelve-Factor App"]},
+"Architecture Decision Records":{y:2011,p:["Technical Debt"]},
+"Opportunistic Refactoring & the Boy Scout Rule":{y:2011,p:["Technical Debt"]},
+"If It Hurts, Do It More Often":{y:2011},
+"Make Illegal States Unrepresentable":{y:2011,p:["Model Absence Explicitly (Option/Maybe)"]},
+"Functional Core, Imperative Shell":{y:2012,p:["Hexagonal Architecture (Ports & Adapters)"]},
+"Make the Change Easy, Then Make the Easy Change":{y:2012,p:["Opportunistic Refactoring & the Boy Scout Rule"]},
+"Time: UTC, Zones, and Monotonic Clocks":{y:2012},
+"Semantic Versioning":{y:2013},
+"Observables, Streams & Signals":{y:2013,p:["Observer"]},
+"Errors as Values (Result / Railway-Oriented)":{y:2014,p:["Model Absence Explicitly (Option/Maybe)"]},
+"Functional Replacements for GoF":{y:2014,p:["Norvig: Patterns as Missing Language Features"]},
+"Is TDD Dead?":{y:2014,p:["!Test-Driven Development"]},
+"Parallel Change (Expand → Migrate → Contract)":{y:2014},
+"Mutation Testing":{y:2014},
+"Cache-Aside":{y:2014},"Sharding":{y:2014},"Queue-Based Load Leveling":{y:2014},"Throttling & Rate Limiting":{y:2014},
+"Monolith First, Microservices Maybe":{y:2014,p:["Gall’s Law","Conway’s Law"]},
+"The Monolith Strikes Back":{y:2015,p:["Monolith First, Microservices Maybe"]},
+"Choose Boring Technology":{y:2015,p:["Worse Is Better"]},
+"Database per Service":{y:2015,p:["Domain-Driven Boundaries (Subdomains & Contexts)"]},
+"Saga":{y:2015,p:["Database per Service"]},
+"Domain Events & Messaging":{y:2015,p:["Observer","Enterprise Integration Patterns"]},
+"Service Discovery":{y:2015,p:["The Eight Fallacies of Distributed Computing"]},
+"API Gateway & Backends for Frontends":{y:2015,p:["Facade"]},
+"The Testing Trophy":{y:2016,p:["!The Test Pyramid"]},
+"Hermetic, Deterministic Tests":{y:2016},
+"Fuzzing":{y:2016,p:["Property-Based Testing"]},
+"SRE: Golden Signals, SLOs & Error Budgets":{y:2016},
+"Blameless Postmortems":{y:2016,p:["SRE: Golden Signals, SLOs & Error Budgets"]},
+"Hyrum’s Law":{y:2016},
+"Exhaustiveness Checking":{y:2016,p:["Make Illegal States Unrepresentable"]},
+"Branded / Opaque Types":{y:2016,p:["Value Objects & Money","Make Illegal States Unrepresentable"]},
+"Feature Flags & Kill Switches":{y:2016},
+"Distributed Monolith":{y:2016,p:["The Eight Fallacies of Distributed Computing"]},
+"Idempotency & Idempotency Keys":{y:2017,p:["The Eight Fallacies of Distributed Computing"]},
+"Trunk-Based Development":{y:2017,p:["If It Hurts, Do It More Often","Feature Flags & Kill Switches"]},
+"Conventional Commits":{y:2017,p:["Semantic Versioning"]},
+"Sidecar & Ambassador":{y:2017,p:["Proxy"]},
+"Diátaxis":{y:2017},
+"Deep Modules":{y:2018,p:["Information Hiding"]},
+"Define Errors Out of Existence":{y:2018,p:["Deep Modules"]},
+"DORA’s Four Keys":{y:2018,p:["Trunk-Based Development","The Agile Manifesto’s Four Values"]},
+"The Agile Industrial Complex":{y:2018,p:["The Agile Manifesto’s Four Values"]},
+"Structured Concurrency":{y:2018},
+"Smart Constructors":{y:2018,p:["Branded / Opaque Types"]},
+"Transactional Outbox":{y:2018,p:["Saga","Domain Events & Messaging"]},
+"Parse, Don’t Validate":{y:2019,p:["Make Illegal States Unrepresentable"]},
+"Total Functions":{y:2019,p:["Parse, Don’t Validate"]},
+"AHA: Avoid Hasty Abstractions":{y:2019,p:["DRY: Don’t Repeat Yourself","Rule of Three"]},
+"Timeouts, Retries & Backoff with Jitter":{y:2019,p:["The Eight Fallacies of Distributed Computing","Circuit Breaker","Idempotency & Idempotency Keys"]},
+"Canonical Log Lines":{y:2019},
+"Code Review, the Google Way":{y:2019},
+"The Typed-Language Evidence Fight":{y:2019},
+"TigerStyle":{y:2020,p:["NASA’s Power of 10"]},
+"Bound Everything":{y:2020,p:["TigerStyle","NASA’s Power of 10"]},
+"Schema Validation at Trust Boundaries":{y:2020,p:["Parse, Don’t Validate","!Postel’s Law and Its Modern Reversal"]},
+"Money Is Integers (or Decimals), Never Binary Floats":{y:2021,p:["Value Objects & Money"]},
+"Supply-Chain Hygiene":{y:2021,p:["Least Privilege"]},
+"CUPID over SOLID":{y:2021,p:["!Single Responsibility Principle","!Open–Closed Principle","!Liskov Substitution Principle","!Interface Segregation Principle","!Dependency Inversion Principle"]},
+"Clean Code Under Fire":{y:2023,p:["Measure First"]},
+"Patterns of Distributed Systems":{y:2023,p:["Enterprise Integration Patterns","The Eight Fallacies of Distributed Computing"]},
+"AI Pair Programming Meets the Evidence":{y:2024,p:["DORA’s Four Keys"]},
+"Turing's Limit (Undecidability)":{y:1936},
+"The Stored-Program Computer":{y:1945},
+"Information Theory":{y:1948},
+"Design for Error (Hamming Codes)":{y:1950,p:["Information Theory"]},
+"MCP: Model Context Protocol":{y:2024,p:["Hexagonal Architecture (Ports & Adapters)","Enterprise Integration Patterns"]},
+"Vibe Coding":{y:2025,p:["Spike Solution","Prompt Engineering","!Code Review, the Google Way"]},
+"Context Engineering":{y:2025,p:["!Prompt Engineering"]},
+"Spec-Driven Development":{y:2025,p:["!Vibe Coding","Test-Driven Development"]},
+"The METR Surprise":{y:2025,p:["AI Pair Programming Meets the Evidence"]},
+"DORA 2025: AI as Amplifier":{y:2025,p:["AI Pair Programming Meets the Evidence"]},
+"Prompt Engineering":{y:2022},
+"Harness Engineering":{y:2026,p:["Context Engineering","MCP: Model Context Protocol"]},
+"Loop Engineering":{y:2026,p:["Harness Engineering","Bound Everything"]}
+};
+
+function slugify(n) {
+  return n.toLowerCase().replace(/[’'“”"().,:&!?·\/]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+const __misses = [];
+for (const it of DATA) {
+  const m = LINEAGE[it.n];
+  if (m) { it.y = m.y; it.p = m.p || []; } else { it.p = []; }
+  it.id = slugify(it.n);
+}
+for (const k of Object.keys(LINEAGE)) {
+  if (!DATA.some(it => it.n === k)) __misses.push("key:" + k);
+}
+const BYNAME = new Map(DATA.map(it => [it.n, it]));
+const BYID = new Map(DATA.map(it => [it.id, it]));
+const EDGES = [];
+for (const it of DATA) {
+  for (const raw of it.p) {
+    const x = raw.charAt(0) === "!";
+    const name = x ? raw.slice(1) : raw;
+    const src = BYNAME.get(name);
+    if (!src) { __misses.push(it.n + " -> " + name); continue; }
+    EDGES.push({ s: src, t: it, x });
+  }
+}
+const INS = new Map(), OUTS = new Map();
+EDGES.forEach((e, i) => {
+  if (!INS.has(e.t.id)) INS.set(e.t.id, []);
+  INS.get(e.t.id).push(i);
+  if (!OUTS.has(e.s.id)) OUTS.set(e.s.id, []);
+  OUTS.get(e.s.id).push(i);
+});
+function chain(id) {
+  const lit = new Set([id]), litE = new Set();
+  const up = [id];
+  while (up.length) {
+    const n = up.pop();
+    for (const i of (INS.get(n) || [])) {
+      if (!litE.has(i)) { litE.add(i); const s = EDGES[i].s.id; if (!lit.has(s)) { lit.add(s); up.push(s); } }
+    }
+  }
+  const dn = [id];
+  while (dn.length) {
+    const n = dn.pop();
+    for (const i of (OUTS.get(n) || [])) {
+      if (!litE.has(i)) { litE.add(i); const t = EDGES[i].t.id; if (!lit.has(t)) { lit.add(t); dn.push(t); } }
+    }
+  }
+  return { lit, litE };
+}
+window.__canon = { edges: EDGES.map(e => [e.s.id, e.t.id]), misses: __misses };
+
+/* ---------- rendering ---------- */
+const mainEl = document.getElementById("main");
+const emptyEl = document.getElementById("empty");
+const chipsEl = document.getElementById("chips");
+const qEl = document.getElementById("q");
+const countLine = document.getElementById("countLine");
+
+let activeCat = "All";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+
+function buildCard(item) {
+  const card = el("article", "card");
+  card.id = "card-" + item.id;
+  card.appendChild(el("h4", null, item.n));
+  card.appendChild(el("div", "origin", item.o || ""));
+  card.appendChild(el("p", "def", item.d || ""));
+  if (item.u) {
+    const r = el("p", "row use");
+    const b = el("b", null, (item.ul || "Use when") + " ");
+    r.appendChild(b); r.appendChild(document.createTextNode(item.u));
+    card.appendChild(r);
+  } else card.appendChild(el("p", "row use empty"));
+  if (item.w) {
+    const r = el("p", "row watch");
+    const b = el("b", null, (item.wl || "Watch out") + " ");
+    r.appendChild(b); r.appendChild(document.createTextNode(item.w));
+    card.appendChild(r);
+  } else card.appendChild(el("p", "row watch empty"));
+  {
+    const links = el("div", "links" + (item.l && item.l.length ? "" : " empty"));
+    for (const [label, url] of (item.l || [])) {
+      const a = el("a", null, label);
+      a.href = url; a.target = "_blank"; a.rel = "noopener";
+      a.setAttribute("aria-label", label + " · " + item.n + " (opens in new tab)");
+      links.appendChild(a);
+    }
+    card.appendChild(links);
+  }
+  const groups = [];
+  const preds = item.p.map(raw => ({ x: raw.charAt(0) === "!", it: BYNAME.get(raw.replace(/^!/, "")) })).filter(o => o.it);
+  const succs = (OUTS.get(item.id) || []).map(i => EDGES[i]);
+  const g = (label, arr, cls) => { if (arr.length) groups.push({ label, arr, cls }); };
+  g("Builds on", preds.filter(o => !o.x).map(o => o.it), "");
+  g("Challenges", preds.filter(o => o.x).map(o => o.it), "x");
+  g("Leads to", succs.filter(e => !e.x).map(e => e.t), "");
+  g("Challenged by", succs.filter(e => e.x).map(e => e.t), "x");
+  {
+    const ln = el("div", "lineage" + (groups.length ? "" : " empty"));
+    for (const grp of groups) {
+      const seg = el("span", "grp", "");
+      seg.appendChild(el("b", null, grp.label + " "));
+      grp.arr.forEach((t, i2) => {
+        if (i2) seg.appendChild(document.createTextNode(", "));
+        const a = el("a", "xref" + (grp.cls ? " x" : ""), t.n);
+        a.href = "#card-" + t.id; a.dataset.id = t.id;
+        seg.appendChild(a);
+      });
+      seg.appendChild(document.createTextNode("  "));
+      ln.appendChild(seg);
+    }
+    card.appendChild(ln);
+  }
+  return card;
+}
+
+function render() {
+  if (VIEW.mode === "chrono") { renderChrono(); return; }
+  const q = qEl.value.trim().toLowerCase();
+  mainEl.textContent = "";
+  let shown = 0;
+
+  for (const cat of CATS) {
+    const items = DATA.filter(it => it.c === cat && (activeCat === "All" || activeCat === cat) && matches(it, q));
+    if (!items.length) continue;
+
+    const section = el("section", "section");
+    section.appendChild(el("h2", null, cat));
+    if (!q && INTROS[cat]) section.appendChild(el("p", "intro", INTROS[cat]));
+
+    let currentSub = null, grid = null;
+    for (const it of items) {
+      const sub = it.s || null;
+      if (sub !== currentSub || !grid) {
+        if (sub) section.appendChild(el("h3", "subhead", sub));
+        grid = el("div", "grid");
+        section.appendChild(grid);
+        currentSub = sub;
+      }
+      grid.appendChild(buildCard(it));
+      shown++;
+    }
+    mainEl.appendChild(section);
+  }
+
+  emptyEl.style.display = shown ? "none" : "block";
+  countLine.textContent = shown === DATA.length
+    ? DATA.length + " entries · " + CATS.length + " categories"
+    : shown + " of " + DATA.length + " entries";
+}
+
+function matches(it, q) {
+  if (!q) return true;
+  const hay = (it.n + " " + (it.o||"") + " " + (it.d||"") + " " + (it.u||"") + " " + (it.w||"") + " " + it.c + " " + (it.s||"")).toLowerCase();
+  return q.split(/\s+/).every(t => hay.includes(t));
+}
+
+function buildChips() {
+  const all = el("button", "chip", "All");
+  all.appendChild(el("span", "n", "· " + DATA.length));
+  all.setAttribute("aria-pressed", "true");
+  all.onclick = () => setCat("All", all);
+  chipsEl.appendChild(all);
+  for (const cat of CATS) {
+    const b = el("button", "chip");
+    b.textContent = cat;
+    const n = el("span", "n", String(DATA.filter(i => i.c === cat).length));
+    b.appendChild(n);
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = () => setCat(cat, b);
+    chipsEl.appendChild(b);
+  }
+}
+
+function setCat(cat, btn) {
+  activeCat = cat;
+  for (const c of chipsEl.children) c.setAttribute("aria-pressed", "false");
+  btn.setAttribute("aria-pressed", "true");
+  render();
+  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+/* ---------- appearance (in-memory only; no storage APIs) ---------- */
+const themeBtn = document.getElementById("themeBtn");
+const themeMenu = document.getElementById("themeMenu");
+const themeItems = Array.from(themeMenu.querySelectorAll("button[data-t]"));
+const metaTheme = document.getElementById("metaTheme");
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+let themeMode = "auto";
+const themeLabels = { auto: "Auto", light: "Light", dark: "Dark" };
+
+function applyTheme(mode) {
+  themeMode = mode;
+  if (mode === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
+  for (const b of themeItems) b.setAttribute("aria-checked", String(b.dataset.t === mode));
+  themeBtn.dataset.icon = mode;
+  themeBtn.setAttribute("aria-label", "Appearance: " + themeLabels[mode]);
+  const dark = mode === "dark" || (mode === "auto" && darkMQ.matches);
+  metaTheme.setAttribute("content", dark ? "#000000" : "#f5f5f7");
+}
+
+function openThemeMenu() {
+  themeMenu.hidden = false;
+  themeMenu.classList.add("open");
+  themeBtn.setAttribute("aria-expanded", "true");
+  (themeItems.find(b => b.getAttribute("aria-checked") === "true") || themeItems[0]).focus();
+}
+function closeThemeMenu(refocus) {
+  themeMenu.classList.remove("open");
+  themeMenu.hidden = true;
+  themeBtn.setAttribute("aria-expanded", "false");
+  if (refocus) themeBtn.focus();
+}
+themeBtn.addEventListener("click", () => {
+  themeMenu.hidden ? openThemeMenu() : closeThemeMenu(true);
+});
+themeBtn.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" && themeMenu.hidden) { e.preventDefault(); openThemeMenu(); }
+});
+themeMenu.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-t]");
+  if (b) { applyTheme(b.dataset.t); closeThemeMenu(true); }
+});
+themeMenu.addEventListener("keydown", (e) => {
+  const i = themeItems.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { e.preventDefault(); themeItems[(i + 1) % themeItems.length].focus(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); themeItems[(i - 1 + themeItems.length) % themeItems.length].focus(); }
+  else if (e.key === "Home") { e.preventDefault(); themeItems[0].focus(); }
+  else if (e.key === "End") { e.preventDefault(); themeItems[themeItems.length - 1].focus(); }
+  else if (e.key === "Escape") { closeThemeMenu(true); }
+  else if (e.key === "Tab") { closeThemeMenu(false); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!themeMenu.hidden && !e.target.closest("#appearance")) closeThemeMenu(false);
+});
+darkMQ.addEventListener("change", () => { if (themeMode === "auto") applyTheme("auto"); });
+applyTheme("auto");
+
+qEl.addEventListener("input", render);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== qEl) { e.preventDefault(); qEl.focus(); }
+  if (e.key === "Escape" && document.activeElement === qEl) { qEl.value = ""; render(); qEl.blur(); }
+});
+
+const VIEW = { mode: "list" };
+const viewSeg = document.getElementById("viewSeg");
+let selId = null;
+
+function setView(v) {
+  VIEW.mode = v;
+  selId = null;
+  for (const b of viewSeg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
+  render();
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+viewSeg.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-v]");
+  if (b) setView(b.dataset.v);
+});
+
+function buildRow(it) {
+  const r = el("div", "crow");
+  r.dataset.id = it.id;
+  r.setAttribute("role", "button");
+  r.tabIndex = 0;
+  r.setAttribute("aria-pressed", "false");
+  const showYr = it.y && String(it.o || "").indexOf(String(it.y)) !== -1;
+  r.appendChild(el("span", "yr", showYr ? String(it.y) : ""));
+  const dot = el("span", "dot"); dot.setAttribute("aria-hidden", "true");
+  r.appendChild(dot);
+  r.appendChild(el("span", "nm", it.n));
+  r.appendChild(el("span", "ct", it.c));
+  const go = el("a", "go", "card ↗");
+  go.href = "#card-" + it.id; go.dataset.id = it.id;
+  go.setAttribute("aria-label", "Open " + it.n + " in list view");
+  r.appendChild(go);
+  return r;
+}
+
+function renderChrono() {
+  const q = qEl.value.trim().toLowerCase();
+  mainEl.textContent = "";
+  const items = DATA.filter(it => (activeCat === "All" || it.c === activeCat) && matches(it, q));
+  const dated = items.filter(i => i.y).sort((a, b) => a.y - b.y || a.n.localeCompare(b.n));
+  const undated = items.filter(i => !i.y).sort((a, b) => a.n.localeCompare(b.n));
+  mainEl.appendChild(el("p", "cintro", "One idea per row, placed on its decade. The curves at left are lineage: solid means builds on, dashed means challenges. Click a row to light its whole chain (Esc clears); years appear only where the cited origin states one, so decade bands carry the rest."));
+  const wrap = el("div", "chrono");
+  let dec = null;
+  for (const it of dated) {
+    const d = Math.floor(it.y / 10) * 10;
+    if (d !== dec) { dec = d; wrap.appendChild(el("h2", "cdecade", d + "s")); }
+    wrap.appendChild(buildRow(it));
+  }
+  if (undated.length) {
+    wrap.appendChild(el("h2", "cdecade", "Undated · folklore & standing practice"));
+    for (const it of undated) wrap.appendChild(buildRow(it));
+  }
+  mainEl.appendChild(wrap);
+  emptyEl.style.display = items.length ? "none" : "block";
+  requestAnimationFrame(() => {
+    const n = drawEdges(wrap);
+    countLine.textContent = items.length + " of " + DATA.length + " entries · " + n + " lineage links in view";
+  });
+}
+
+function drawEdges(container) {
+  const rows = new Map();
+  container.querySelectorAll(".crow[data-id]").forEach(r => rows.set(r.dataset.id, r));
+  let svg = container.querySelector("svg.cedges");
+  if (!svg) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "cedges");
+    container.prepend(svg);
+  }
+  svg.setAttribute("width", container.clientWidth);
+  svg.setAttribute("height", container.scrollHeight);
+  svg.textContent = "";
+  const cRect = container.getBoundingClientRect();
+  const pt = (r) => {
+    const b = r.querySelector(".dot").getBoundingClientRect();
+    return { x: b.left - cRect.left + b.width / 2, y: b.top - cRect.top + b.height / 2 };
+  };
+  const vis = [];
+  EDGES.forEach((e, i) => {
+    const s = rows.get(e.s.id), t = rows.get(e.t.id);
+    if (s && t) vis.push({ e, i, a: pt(s), b: pt(t) });
+  });
+  for (const o of vis) { o.y1 = Math.min(o.a.y, o.b.y); o.y2 = Math.max(o.a.y, o.b.y); }
+  vis.sort((p, q) => (p.y2 - p.y1) - (q.y2 - q.y1));
+  const narrow = container.clientWidth < 640;
+  const laneBase = narrow ? 12 : 18, laneGap = narrow ? 5 : 9;
+  const lanes = [];
+  for (const o of vis) {
+    let L = 0;
+    for (; L < lanes.length; L++) {
+      if (!lanes[L].some(iv => o.y1 < iv[1] && iv[0] < o.y2)) break;
+    }
+    if (L === lanes.length) lanes.push([]);
+    if (L > 12) L = 12;
+    lanes[L].push([o.y1, o.y2]);
+    o.lane = L;
+  }
+  for (const o of vis) {
+    const lx = Math.max(4, o.a.x - (laneBase + o.lane * laneGap));
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", "M " + (o.a.x - 5) + " " + o.a.y + " C " + lx + " " + o.a.y + ", " + lx + " " + o.b.y + ", " + (o.b.x - 5) + " " + o.b.y);
+    p.setAttribute("class", "ce" + (o.e.x ? " x" : ""));
+    p.dataset.i = o.i;
+    svg.appendChild(p);
+  }
+  applySel(container);
+  return vis.length;
+}
+
+function applySel(container) {
+  const res = selId ? chain(selId) : null;
+  container.classList.toggle("dimmed", !!selId);
+  container.querySelectorAll(".crow").forEach(r => {
+    const on = res && res.lit.has(r.dataset.id);
+    r.classList.toggle("lit", !!on);
+    r.classList.toggle("sel", selId === r.dataset.id);
+    r.setAttribute("aria-pressed", String(selId === r.dataset.id));
+  });
+  container.querySelectorAll("path.ce").forEach(p => {
+    p.classList.toggle("lit", !!(res && res.litE.has(+p.dataset.i)));
+  });
+}
+
+function toggleSel(id) {
+  selId = (selId === id) ? null : id;
+  const c = mainEl.querySelector(".chrono");
+  if (c) applySel(c);
+}
+
+function gotoCard(id) {
+  selId = null;
+  if (VIEW.mode !== "list") setView("list");
+  const it = BYID.get(id);
+  if (!it) return;
+  if (activeCat !== "All" && it.c !== activeCat) {
+    activeCat = "All";
+    for (const c of chipsEl.children) c.setAttribute("aria-pressed", String(c === chipsEl.firstElementChild));
+  }
+  if (qEl.value) qEl.value = "";
+  render();
+  const elc = document.getElementById("card-" + id);
+  if (elc) {
+    elc.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    elc.classList.add("pulse");
+    setTimeout(() => elc.classList.remove("pulse"), 1800);
+  }
+}
+
+mainEl.addEventListener("click", (e) => {
+  const a = e.target.closest("a.xref, a.go");
+  if (a && a.dataset.id) { e.preventDefault(); gotoCard(a.dataset.id); return; }
+  const r = e.target.closest(".crow");
+  if (r) toggleSel(r.dataset.id);
+});
+mainEl.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("crow")) {
+    e.preventDefault();
+    toggleSel(e.target.dataset.id);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && selId) {
+    selId = null;
+    const c = mainEl.querySelector(".chrono");
+    if (c) applySel(c);
+  }
+});
+let __rzT;
+window.addEventListener("resize", () => {
+  if (VIEW.mode !== "chrono") return;
+  clearTimeout(__rzT);
+  __rzT = setTimeout(() => { const c = mainEl.querySelector(".chrono"); if (c) drawEdges(c); }, 150);
+});
+
+buildChips();
+render();
+</script>
+</body>
+</html>

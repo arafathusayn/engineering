@@ -9,6 +9,7 @@
 //! Environment policy (root resolution, argument handling) lives here at
 //! the edge; the library takes explicit paths.
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -100,12 +101,11 @@ fn run() -> Result<ExitCode> {
     let out = canon_builder::output_path(&root);
     match mode {
         Mode::Check => {
+            let mut ok = true;
             let committed = fs::read_to_string(&out)
                 .with_context(|| format!("cannot read {}", out.display()))?;
-            if committed == built.html {
-                println!("ok: index.html matches the canon.toon build output");
-                Ok(ExitCode::SUCCESS)
-            } else {
+            if committed != built.html {
+                ok = false;
                 let at = committed
                     .bytes()
                     .zip(built.html.bytes())
@@ -115,16 +115,59 @@ fn run() -> Result<ExitCode> {
                     "FAIL: index.html differs from build output at byte {at}; \
                      run the builder to regenerate"
                 );
+            }
+            // Every content-hashed sidecar must be present and byte-identical.
+            let expected: BTreeSet<&str> =
+                built.assets.iter().map(|a| a.name.as_str()).collect();
+            for asset in &built.assets {
+                match fs::read_to_string(root.join(&asset.name)) {
+                    Ok(content) if content == asset.content => {}
+                    Ok(_) => {
+                        ok = false;
+                        eprintln!("FAIL: {} differs from build output; regenerate", asset.name);
+                    }
+                    Err(_) => {
+                        ok = false;
+                        eprintln!("FAIL: {} is missing; run the builder", asset.name);
+                    }
+                }
+            }
+            // A sidecar from an earlier hash must never linger in the deploy.
+            for path in existing_app_scripts(&root)? {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                if !expected.contains(name) {
+                    ok = false;
+                    eprintln!("FAIL: stale sidecar {name} present; run the builder to remove it");
+                }
+            }
+            if ok {
+                println!("ok: index.html and its sidecars match the canon.toon build output");
+                Ok(ExitCode::SUCCESS)
+            } else {
                 Ok(ExitCode::FAILURE)
             }
         }
         _ => {
+            // Refresh the content-hashed sidecars: drop any previous app.*.js
+            // (a stale hash would otherwise ship forever) before writing the
+            // current set, so the deploy holds exactly one app.<hash>.js.
+            for stale in existing_app_scripts(&root)? {
+                fs::remove_file(&stale)
+                    .with_context(|| format!("cannot remove {}", stale.display()))?;
+            }
             fs::write(&out, &built.html)
                 .with_context(|| format!("cannot write {}", out.display()))?;
+            for asset in &built.assets {
+                let path = root.join(&asset.name);
+                fs::write(&path, &asset.content)
+                    .with_context(|| format!("cannot write {}", path.display()))?;
+            }
+            let names: Vec<&str> = built.assets.iter().map(|a| a.name.as_str()).collect();
             println!(
-                "built index.html ({} bytes, minified) from {} cards, {} categories, \
+                "built index.html ({} bytes, minified) + [{}] from {} cards, {} categories, \
                  {} lineage entries, {} edges",
                 built.html.len(),
+                names.join(", "),
                 built.cards,
                 built.categories,
                 built.lineage_entries,
@@ -133,4 +176,18 @@ fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// Every `app.*.js` sidecar currently sitting in the checkout root.
+fn existing_app_scripts(root: &std::path::Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    for entry in fs::read_dir(root).with_context(|| format!("cannot read {}", root.display()))? {
+        let path = entry?.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if name.starts_with("app.") && name.ends_with(".js") {
+            found.push(path);
+        }
+    }
+    found.sort();
+    Ok(found)
 }

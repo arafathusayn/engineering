@@ -47,6 +47,7 @@ const chronoView = document.getElementById("chronoView");
 const chronoWrap = chronoView.querySelector(".chrono");
 const emptyEl = document.getElementById("empty");
 const chipsEl = document.getElementById("chips");
+const toolbarEl = document.querySelector(".toolbar");
 const qEl = document.getElementById("q");
 const countLine = document.getElementById("countLine");
 const viewSeg = document.getElementById("viewSeg");
@@ -245,7 +246,13 @@ function applyCat(cat) {
 function setCat(cat) {
   applyCat(cat);
   render();
-  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+  // Reveal the live entry count, not the masthead: after a filter the updated
+  // tally and the results beneath it are what matter, so scroll #countLine to
+  // just under the sticky toolbar. Offset by the toolbar's measured height (it
+  // wraps taller on narrow viewports) so the line clears the chrome instead of
+  // hiding behind it.
+  const top = Math.max(0, countLine.getBoundingClientRect().top + window.scrollY - toolbarEl.offsetHeight);
+  window.scrollTo({ top, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
 chipsEl.addEventListener("click", (e) => {
   const b = e.target.closest("button.chip");

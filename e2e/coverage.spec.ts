@@ -1,4 +1,4 @@
-// Runs after app.spec.mjs (alphabetical order, single worker): merges the
+// Runs after app.spec.ts (alphabetical order, single worker): merges the
 // V8 coverage every test persisted and asserts templates/app.js is 100%
 // covered — statements, lines, functions, and branches — and that no test
 // produced a page or console error.
@@ -8,8 +8,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import v8toIstanbul from "v8-to-istanbul";
 import libCoverage from "istanbul-lib-coverage";
-import { COVERAGE_DIR, ERRORS_FILE } from "./fixtures.mjs";
-import { APP_JS } from "./server.mjs";
+import { COVERAGE_DIR, ERRORS_FILE } from "./fixtures";
+import { APP_JS } from "./server";
 
 const APP_JS_PATH = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -22,9 +22,7 @@ test("app.js is 100% covered and no test saw console errors", async () => {
   const errors = fs.existsSync(ERRORS_FILE) ? fs.readFileSync(ERRORS_FILE, "utf8") : "";
   expect(errors, "no page or console errors in any test").toBe("");
 
-  const dumps = fs
-    .readdirSync(COVERAGE_DIR)
-    .filter((f) => f.endsWith(".json"));
+  const dumps = fs.readdirSync(COVERAGE_DIR).filter((f) => f.endsWith(".json"));
   expect(dumps.length, "coverage was recorded by the app tests").toBeGreaterThan(0);
 
   const map = libCoverage.createCoverageMap({});
@@ -45,12 +43,11 @@ test("app.js is 100% covered and no test saw console errors", async () => {
     "uncovered lines:\n" + uncovered.map((n) => `  L${n}: ${lines[n - 1]?.trim()}`).join("\n")
   ).toBe(0);
 
-  const missedBranches = [];
-  const { b, branchMap } = fileCov.toJSON();
-  for (const [id, counts] of Object.entries(b)) {
+  const missedBranches: string[] = [];
+  for (const [id, counts] of Object.entries(fileCov.b)) {
     counts.forEach((count, i) => {
       if (count === 0) {
-        const loc = branchMap[id].locations[i]?.start;
+        const loc = fileCov.branchMap[id].locations[i]?.start;
         missedBranches.push(`L${loc?.line}: ${lines[(loc?.line ?? 1) - 1]?.trim()} (arm ${i})`);
       }
     });

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export default function globalSetup() {
+export default function globalSetup(): void {
   const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), ".coverage");
   fs.rmSync(dir, { recursive: true, force: true });
 }

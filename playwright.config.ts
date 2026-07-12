@@ -8,9 +8,9 @@ const executablePath = process.env.CHROMIUM_PATH;
 
 export default defineConfig({
   testDir: "e2e",
-  globalSetup: "./e2e/global-setup.mjs",
+  globalSetup: "./e2e/global-setup.ts",
   // One worker: every test merges V8 coverage of templates/app.js into one
-  // in-process collector, and the final test asserts 100%.
+  // on-disk collection, and the final test asserts 100%.
   workers: 1,
   fullyParallel: false,
   timeout: 30_000,

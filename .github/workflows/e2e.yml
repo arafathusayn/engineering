@@ -1,8 +1,9 @@
 
-# Browser end-to-end tests for templates/app.js against the built page,
-# with 100% line/branch/function coverage of app.js enforced. Runs when the
-# page's behavior or content changes; content edits are covered because the
-# suite exercises the real committed index.html.
+# Browser end-to-end tests for templates/app.js against the built page, run
+# with Bun, with 100% line/branch/function coverage of app.js enforced and
+# the test sources type-checked. Runs when the page's behavior or content
+# changes; content edits are covered because the suite exercises the real
+# committed index.html.
 name: e2e
 
 on:
@@ -14,8 +15,9 @@ on:
       - "templates/**"
       - "e2e/**"
       - "package.json"
-      - "package-lock.json"
-      - "playwright.config.mjs"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "playwright.config.ts"
       - ".github/workflows/e2e.yml"
   pull_request:
     paths:
@@ -24,8 +26,9 @@ on:
       - "templates/**"
       - "e2e/**"
       - "package.json"
-      - "package-lock.json"
-      - "playwright.config.mjs"
+      - "bun.lock"
+      - "tsconfig.json"
+      - "playwright.config.ts"
       - ".github/workflows/e2e.yml"
   workflow_dispatch:
 
@@ -37,14 +40,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: oven-sh/setup-bun@v2
         with:
-          node-version: 22
-          cache: npm
-      - run: npm ci
+          bun-version: latest
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
       - uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - run: npx playwright install --with-deps chromium
-      - run: npm run e2e
+          key: playwright-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      # Playwright's runner needs Node (its bin is node-shebang); ubuntu-latest
+      # ships it. Bun drives install and the scripts.
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run e2e

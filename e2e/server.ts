@@ -13,6 +13,7 @@
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
+import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,7 +21,7 @@ const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const APP_JS = fs.readFileSync(path.join(ROOT, "templates/app.js"), "utf8");
 const PAGE = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
 
-function replaceOnce(hay, needle, replacement, what) {
+function replaceOnce(hay: string, needle: string, replacement: string, what: string): string {
   const i = hay.indexOf(needle);
   if (i === -1 || hay.indexOf(needle, i + 1) !== -1) {
     throw new Error(`${what}: expected exactly one occurrence of ${JSON.stringify(needle)}`);
@@ -29,17 +30,17 @@ function replaceOnce(hay, needle, replacement, what) {
 }
 
 // The app script is the only bare `<script>` element in the minified page.
-function withSourceScript(html) {
+function withSourceScript(html: string): string {
   const open = html.lastIndexOf("<script>");
   if (open === -1) throw new Error("bare <script> not found");
   const close = html.indexOf("</script>", open);
   return html.slice(0, open) + "<script>" + APP_JS + "</script>" + html.slice(close + "</script>".length);
 }
 
-function locateEdgeBlob(html) {
+function locateEdgeBlob(html: string): { contentStart: number; contentEnd: number } {
   // Same serialization-agnostic scan as tests/build.rs: last <script …> tag
   // mentioning edgeData (the PARSE GUIDE comment mentions it first, in prose).
-  let result = null;
+  let result: { contentStart: number; contentEnd: number } | null = null;
   let from = 0;
   for (;;) {
     const start = html.indexOf("<script", from);
@@ -56,19 +57,17 @@ function locateEdgeBlob(html) {
   return result;
 }
 
-function withDenseEdges(html) {
+function withDenseEdges(html: string): string {
   // >13 mutually overlapping lineage edges between far-apart chrono rows.
   const ids = [...html.matchAll(/class=crow data-id=([a-z0-9-]+)/g)].map((m) => m[1]);
   if (ids.length < 40) throw new Error(`only ${ids.length} crow ids found`);
-  const edges = [];
+  const edges: (string | number)[][] = [];
   for (let i = 0; i < 16; i++) edges.push([ids[i], ids[i + 20], i % 2]);
   const { contentStart, contentEnd } = locateEdgeBlob(html);
-  return (
-    html.slice(0, contentStart) + JSON.stringify({ edges, misses: [] }) + html.slice(contentEnd)
-  );
+  return html.slice(0, contentStart) + JSON.stringify({ edges, misses: [] }) + html.slice(contentEnd);
 }
 
-function withEdgeCases(html) {
+function withEdgeCases(html: string): string {
   // (a) strip the <b> label from one card's use-row -> rowText() fallback.
   const useRow = /<p class="row use"><b>[^<]*<\/b>/;
   const m = html.match(useRow);
@@ -86,16 +85,16 @@ function withEdgeCases(html) {
   return html;
 }
 
-function withPrefill(html, value) {
+function withPrefill(html: string, value: string): string {
   const input = html.match(/<input[^>]*id=q[^>]*>/);
   if (!input) throw new Error("search input not found");
   const patched = input[0].replace(/>$/, ` value="${value}">`);
   return replaceOnce(html, input[0], patched, "search input");
 }
 
-export function startServer() {
+export function startServer(): Promise<{ server: http.Server; origin: string }> {
   const server = http.createServer((req, res) => {
-    const url = new URL(req.url, "http://localhost");
+    const url = new URL(req.url ?? "/", "http://localhost");
     if (url.pathname !== "/") {
       res.writeHead(404).end();
       return;
@@ -109,7 +108,8 @@ export function startServer() {
   });
   return new Promise((resolve) => {
     server.listen(0, "127.0.0.1", () => {
-      resolve({ server, origin: `http://127.0.0.1:${server.address().port}` });
+      const { port } = server.address() as AddressInfo;
+      resolve({ server, origin: `http://127.0.0.1:${port}` });
     });
   });
 }

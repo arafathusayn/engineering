@@ -355,15 +355,22 @@ fn edge_json(edges: &[Edge], ids: &[String], misses: &[String]) -> String {
     .replace('<', "\\u003c")
 }
 
-/// Make arbitrary JS safe inside an inline `<script>`: `</script` (any case)
-/// would end the element early; `<\/script` is the same text to JS.
+/// Make arbitrary JS safe inside an inline `<script>`: `</script` in any
+/// casing would end the element early (the HTML parser is case-insensitive);
+/// `<\/script` is the same text to JS. Original casing is preserved.
 fn guard_inline_script(script: String) -> String {
-    let mut out = script;
-    for needle in ["</script", "</Script", "</SCRIPT"] {
-        if out.contains(needle) {
-            out = out.replace(needle, &needle.replace("</", "<\\/"));
-        }
+    let lower = script.to_ascii_lowercase(); // byte-index compatible
+    if !lower.contains("</script") {
+        return script;
     }
+    let mut out = String::with_capacity(script.len() + 8);
+    let mut last = 0;
+    for (i, _) in lower.match_indices("</script") {
+        out.push_str(&script[last..i]);
+        out.push_str("<\\/");
+        last = i + 2;
+    }
+    out.push_str(&script[last..]);
     out
 }
 
@@ -528,6 +535,10 @@ mod tests {
     fn inline_script_and_edge_json_cannot_break_out_of_their_tags() {
         let guarded = guard_inline_script("alert('</script><script>')".into());
         assert!(!guarded.contains("</script"));
+        assert_eq!(guarded, "alert('<\\/script><script>')");
+        // The HTML parser is case-insensitive, so the guard must be too.
+        let mixed = guard_inline_script("x = '</ScRiPt>' + '</SCRIPT>'".into());
+        assert_eq!(mixed, "x = '<\\/ScRiPt>' + '<\\/SCRIPT>'");
         let d = derive(&fixture(), String::new()).unwrap();
         assert!(!d.page.edge_json.contains('<'));
     }

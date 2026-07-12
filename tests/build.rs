@@ -38,13 +38,21 @@ fn page_contains_the_expected_structure() {
         html.contains("PARSE GUIDE"),
         "keep_comments must preserve the guide"
     );
-    // The minifier alphabetizes and unquotes the attributes; rfind because
-    // the PARSE GUIDE comment mentions the (unminified) tag in prose first.
-    let blob_start = html
-        .rfind("<script id=edgeData type=application/json>")
+    // Locate the edgeData element without assuming how the minifier orders
+    // or quotes attributes. Take the LAST candidate: the PARSE GUIDE comment
+    // mentions the tag in prose before the real element appears.
+    let (open_tag, after_tag) = html
+        .match_indices("<script")
+        .filter_map(|(start, _)| {
+            let tag_end = start + html[start..].find('>')?;
+            let tag = &html[start..=tag_end];
+            (tag.contains("edgeData") && tag.contains("application/json"))
+                .then_some((tag, &html[tag_end + 1..]))
+        })
+        .last()
         .expect("edgeData blob present");
-    let rest = &html[blob_start..];
-    let json = &rest[rest.find('>').unwrap() + 1..rest.find("</script>").unwrap()];
+    assert!(open_tag.contains("edgeData"), "sanity: {open_tag}");
+    let json = &after_tag[..after_tag.find("</script>").expect("blob closes")];
     let parsed: serde_json::Value =
         serde_json::from_str(json).expect("edgeData must stay valid JSON");
     assert_eq!(parsed["edges"].as_array().unwrap().len(), built.edges);

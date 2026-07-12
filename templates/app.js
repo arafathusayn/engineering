@@ -4,7 +4,9 @@
    section and chrono row already exists in the HTML (built from canon.toon
    by the Rust generator); this script only filters, navigates and draws the
    chrono lineage curves. With JavaScript disabled the whole canon is still
-   readable and every cross-reference link still works as a plain anchor. */
+   readable and every cross-reference link still works as a plain anchor.
+   NOTE: this file is injected verbatim into the page by the builder — it is
+   never template-processed, so any JS syntax is safe here. */
 
 /* ---------- lineage graph (embedded as JSON data, not markup) ---------- */
 const EDGE_DATA = JSON.parse(document.getElementById("edgeData").textContent);
@@ -41,27 +43,62 @@ function chain(id) {
 const mainEl = document.getElementById("main");
 const listView = document.getElementById("listView");
 const chronoView = document.getElementById("chronoView");
+const chronoWrap = chronoView.querySelector(".chrono");
 const emptyEl = document.getElementById("empty");
 const chipsEl = document.getElementById("chips");
 const qEl = document.getElementById("q");
 const countLine = document.getElementById("countLine");
+const viewSeg = document.getElementById("viewSeg");
 
-const CARDS = Array.from(listView.querySelectorAll("article.card")).map(node => ({
-  el: node,
-  id: node.id.slice("card-".length),
-  cat: node.dataset.cat,
-  hay: node.dataset.search
-}));
+const CARD_PREFIX = "card-";
+
+/* The search haystack is derived from the same seven fields the page has
+   always searched — name, origin, definition, use-when, watch-out, category,
+   subgroup, space-joined and lowercased — read back from the pre-rendered
+   DOM so the text isn't shipped twice. */
+function rowText(p) {
+  return p && p.firstElementChild ? p.textContent.slice(p.firstElementChild.textContent.length) : "";
+}
+function haystack(node, sub) {
+  return (
+    node.querySelector("h4").textContent + " " +
+    node.querySelector(".origin").textContent + " " +
+    node.querySelector(".def").textContent + " " +
+    rowText(node.querySelector(".row.use")) + " " +
+    rowText(node.querySelector(".row.watch")) + " " +
+    node.dataset.cat + " " +
+    sub
+  ).toLowerCase();
+}
+
+const CARDS = [];
+for (const grid of listView.querySelectorAll(".grid")) {
+  const head = grid.previousElementSibling;
+  const sub = head && head.classList.contains("subhead") ? head.textContent : "";
+  for (const node of grid.querySelectorAll("article.card")) {
+    CARDS.push({ el: node, id: node.id.slice(CARD_PREFIX.length), cat: node.dataset.cat, hay: haystack(node, sub) });
+  }
+}
 const BYID = new Map(CARDS.map(c => [c.id, c]));
 const TOTAL = CARDS.length;
-const NCATS = chipsEl.querySelectorAll(".chip").length - 1;
 const ROWS = Array.from(chronoView.querySelectorAll(".crow"));
 const SECTIONS = Array.from(listView.querySelectorAll(".section"));
 const DECADES = Array.from(chronoView.querySelectorAll(".cdecade"));
+const FULL_COUNT = countLine.textContent;
 
+/* ---------- state ---------- */
 let activeCat = "All";
-const VIEW = { mode: "list" };
+let view = "list";
 let selId = null;
+let pulseTimer, pulsedCard;
+
+function clearPulse() {
+  if (pulsedCard) {
+    clearTimeout(pulseTimer);
+    pulsedCard.classList.remove("pulse");
+    pulsedCard = null;
+  }
+}
 
 /* ---------- filtering ---------- */
 function matches(c, q) {
@@ -79,8 +116,9 @@ function visibleIds() {
 }
 
 function render() {
+  clearPulse(); // the old full-rebuild implicitly killed the pulse on re-render
   const { vis, q } = visibleIds();
-  if (VIEW.mode === "chrono") renderChrono(vis); else renderList(vis, q);
+  if (view === "chrono") renderChrono(vis); else renderList(vis, q);
 }
 
 function renderList(vis, q) {
@@ -100,9 +138,7 @@ function renderList(vis, q) {
     if (intro) intro.hidden = !!q;
   }
   emptyEl.style.display = shown ? "none" : "block";
-  countLine.textContent = shown === TOTAL
-    ? TOTAL + " entries · " + NCATS + " categories"
-    : shown + " of " + TOTAL + " entries";
+  countLine.textContent = shown === TOTAL ? FULL_COUNT : shown + " of " + TOTAL + " entries";
 }
 
 function renderChrono(vis) {
@@ -117,9 +153,8 @@ function renderChrono(vis) {
   }
   emptyEl.style.display = shown ? "none" : "block";
   requestAnimationFrame(() => {
-    if (VIEW.mode !== "chrono") return; // view flipped before this frame
-    const wrap = chronoView.querySelector(".chrono");
-    const n = drawEdges(wrap);
+    if (view !== "chrono") return; // view flipped before this frame
+    const n = drawEdges(chronoWrap);
     countLine.textContent = shown + " of " + TOTAL + " entries · " + n + " lineage links in view";
   });
 }
@@ -195,21 +230,22 @@ function applySel(container) {
 
 function toggleSel(id) {
   selId = (selId === id) ? null : id;
-  const c = chronoView.querySelector(".chrono");
-  if (c) applySel(c);
+  applySel(chronoWrap);
 }
 
-/* ---------- category chips ---------- */
-function setCat(cat, btn) {
+/* ---------- category chips (aria state has exactly one writer) ---------- */
+function applyCat(cat) {
   activeCat = cat;
-  for (const c of chipsEl.children) c.setAttribute("aria-pressed", "false");
-  btn.setAttribute("aria-pressed", "true");
+  for (const c of chipsEl.children) c.setAttribute("aria-pressed", String(c.dataset.cat === cat));
+}
+function setCat(cat) {
+  applyCat(cat);
   render();
   window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
 }
 chipsEl.addEventListener("click", (e) => {
   const b = e.target.closest("button.chip");
-  if (b && b.dataset.cat) setCat(b.dataset.cat, b);
+  if (b && b.dataset.cat) setCat(b.dataset.cat);
 });
 
 /* ---------- appearance (in-memory only; no storage APIs) ---------- */
@@ -277,10 +313,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 /* ---------- view toggle ---------- */
-const viewSeg = document.getElementById("viewSeg");
-
 function setView(v) {
-  VIEW.mode = v;
+  view = v;
   selId = null;
   for (const b of viewSeg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
   listView.hidden = v !== "list";
@@ -294,27 +328,20 @@ viewSeg.addEventListener("click", (e) => {
 });
 
 /* ---------- cross-reference navigation ---------- */
-let __pulseT, __pulseEl;
 function gotoCard(id) {
   selId = null;
-  if (VIEW.mode !== "list") setView("list");
+  if (view !== "list") setView("list");
   const it = BYID.get(id);
   if (!it) return;
-  if (activeCat !== "All" && it.cat !== activeCat) {
-    activeCat = "All";
-    for (const c of chipsEl.children) c.setAttribute("aria-pressed", String(c === chipsEl.firstElementChild));
-  }
+  if (activeCat !== "All" && it.cat !== activeCat) applyCat("All");
   if (qEl.value) qEl.value = "";
   render();
-  const elc = document.getElementById("card-" + id);
+  const elc = document.getElementById(CARD_PREFIX + id);
   if (elc) {
-    /* Cards persist across renders now, so clear any previous pulse — a
-       stale timer would otherwise cut a re-triggered pulse short. */
-    if (__pulseEl) { clearTimeout(__pulseT); __pulseEl.classList.remove("pulse"); }
-    __pulseEl = elc;
     elc.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
     elc.classList.add("pulse");
-    __pulseT = setTimeout(() => { elc.classList.remove("pulse"); if (__pulseEl === elc) __pulseEl = null; }, 1800);
+    pulsedCard = elc;
+    pulseTimer = setTimeout(clearPulse, 1800);
   }
 }
 
@@ -333,13 +360,17 @@ mainEl.addEventListener("keydown", (e) => {
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && selId) {
     selId = null;
-    const c = chronoView.querySelector(".chrono");
-    if (c) applySel(c);
+    applySel(chronoWrap);
   }
 });
-let __rzT;
+let resizeTimer;
 window.addEventListener("resize", () => {
-  if (VIEW.mode !== "chrono") return;
-  clearTimeout(__rzT);
-  __rzT = setTimeout(() => { const c = chronoView.querySelector(".chrono"); if (c) drawEdges(c); }, 150);
+  if (view !== "chrono") return;
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (view === "chrono") drawEdges(chronoWrap); }, 150);
 });
+
+/* Reconcile any search text that existed before this script ran (typed
+   during parse, or a browser-restored form value) — the old page did this
+   with its unconditional startup render(). */
+if (qEl.value) render();

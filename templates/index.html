@@ -1,12 +1,17 @@
-<!-- PARSE GUIDE: This page is generated — do not edit; the source of truth is canon.toon (TOON
-format, https://toonformat.dev) rendered by the Rust builder in this repository (cargo run). All content
-is pre-rendered server-side; no JavaScript is needed to read it. Cards are article.card elements with
-id="card-"+slug, data-cat, and data-search (the search haystack); lineage cross-references are plain
-anchors a.xref[data-id] labeled "Builds on"/"Challenges"/"Leads to"/"Challenged by". The chronological
-view is pre-rendered under #chronoView as .crow[data-id] rows grouped by decade headers (h2.cdecade).
-The lineage DAG is embedded as JSON in <script type="application/json" id="edgeData">:
-{edges:[[srcId,tgtId,challenges01],...], misses:[...]}; at runtime window.__canon = {edges:[[srcId,tgtId],...],
-misses:[...]} exposes the same graph. To extract structured data, parse canon.toon. -->
+{#- This file is the editable Askama source template. The HTML comment below is the
+    PARSE GUIDE addressed to the GENERATED index.html, which is built and minified from
+    this template by `cargo run --release`. Presentation changes happen here; content
+    changes happen in canon.toon. -#}
+<!-- PARSE GUIDE: This page is generated and minified - do not edit; the source of truth is canon.toon
+(TOON format, https://toonformat.dev) rendered by the Rust builder in this repository (cargo run
+--release). All content is pre-rendered server-side; no JavaScript is needed to read it. Cards are
+article.card elements with id="card-"+slug and data-cat; lineage cross-references are plain anchors
+a.xref[data-id] labeled "Builds on"/"Challenges"/"Leads to"/"Challenged by". The chronological view is
+pre-rendered under #chronoView as .crow[data-id] rows grouped by decade headers (h2.cdecade). The
+lineage DAG is embedded as JSON in <script type="application/json" id="edgeData">:
+{edges:[[srcId,tgtId,challenges01],...], misses:[...]}; at runtime window.__canon =
+{edges:[[srcId,tgtId],...], misses:[...]} exposes the same graph. To extract structured data, parse
+canon.toon; the pre-rewrite page is archived at legacy/index.html. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -164,7 +169,6 @@ misses:[...]} exposes the same graph. To extract structured data, parse canon.to
     box-shadow: var(--shadow-hover); padding: 0.25rem;
     transform-origin: top right;
   }
-  .menu[hidden] { display: none; }
   .menu.open { animation: menuIn 180ms cubic-bezier(0.32, 0.72, 0, 1); }
   @keyframes menuFade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes menuIn {
@@ -388,7 +392,7 @@ misses:[...]} exposes the same graph. To extract structured data, parse canon.to
   <nav class="chips" id="chips" aria-label="Filter by category">
 <button type="button" class="chip" data-cat="All" aria-pressed="true">All<span class="n">· {{ total }}</span></button>
 {%- for chip in chips %}
-<button type="button" class="chip" data-cat="{{ chip.cat }}" aria-pressed="false">{{ chip.cat }}<span class="n">{{ chip.count }}</span></button>
+<button type="button" class="chip" data-cat="{{ chip.category }}" aria-pressed="false">{{ chip.category }}<span class="n">{{ chip.count }}</span></button>
 {%- endfor %}
 </nav>
 </header>
@@ -397,14 +401,14 @@ misses:[...]} exposes the same graph. To extract structured data, parse canon.to
   <h1>Every principle, practice &amp; pattern.<br><em>And when to reach for each.</em></h1>
   <p class="lede">A curated field guide to software engineering’s named knowledge: foundational principles, laws and maxims, pragmatic tactics, defensive practices, design patterns classic and modern, architecture, delivery discipline, and the anti-patterns and rethinks that keep the canon honest. It spans Turing’s 1936 limit to the AI-era evidence of 2026, and lineage links weave every entry into one chronological graph.</p>
   <p class="fine"><b>How to read this page.</b> Definitions and origins follow the linked sources, retrieved and verified 11 July 2026. The <b>Use when</b> / <b>Watch out</b> lines are editorial synthesis: judgment, not citation. Lineage links between cards are synthesis too, except where the later work cites the earlier one. Press <b>/</b> to search, filter with the category pills, and flip the List·Chrono toggle for the time-ordered graph view. No finite catalog is complete; this one aims to cover what practitioners actually name and reach for.</p>
-  <p class="count-line" id="countLine" aria-live="polite">{{ total }} entries · {{ cats_len }} categories</p>
+  <p class="count-line" id="countLine" aria-live="polite">{{ total }} entries · {{ chips.len() }} categories</p>
 </section>
 
 <main id="main">
 <div id="listView">
 {%- for sec in sections %}
-<section class="section" data-cat="{{ sec.cat }}">
-<h2>{{ sec.cat }}</h2>
+<section class="section" data-cat="{{ sec.category }}">
+<h2>{{ sec.category }}</h2>
 {%- if !sec.intro.is_empty() %}
 <p class="intro">{{ sec.intro }}</p>
 {%- endif %}
@@ -427,7 +431,7 @@ misses:[...]} exposes the same graph. To extract structured data, parse canon.to
 {%- for dec in decades %}
 <h2 class="cdecade">{{ dec.label }}</h2>
 {%- for row in dec.rows %}
-<div class="crow" data-id="{{ row.id }}" role="button" tabindex="0" aria-pressed="false"><span class="yr">{{ row.yr }}</span><span class="dot" aria-hidden="true"></span><span class="nm">{{ row.n }}</span><span class="ct">{{ row.c }}</span><a class="go" href="#card-{{ row.id }}" data-id="{{ row.id }}" aria-label="Open {{ row.n }} in list view">card ↗</a></div>
+{% include "crow.html" %}
 {%- endfor %}
 {%- endfor %}
 </div>
@@ -444,7 +448,7 @@ misses:[...]} exposes the same graph. To extract structured data, parse canon.to
 
 <script type="application/json" id="edgeData">{{ edge_json|safe }}</script>
 <script>
-{% include "app.js" %}
+{{ script|safe }}
 </script>
 </body>
 </html>

@@ -89,7 +89,9 @@ export function startServer(): Promise<{ server: http.Server; origin: string }> 
     const url = new URL(req.url ?? "/", "http://localhost");
     // The externalized, content-hashed app script: answer with the pristine
     // source so coverage maps onto templates/app.js (deployed = this, minified).
-    if (/^\/app\.[0-9a-f]+\.js$/.test(url.pathname)) {
+    // The hash is a fixed 12 lowercase hex (HASH_LEN in src/lib.rs); matching
+    // that exact shape surfaces a mis-named reference instead of masking it.
+    if (/^\/app\.[0-9a-f]{12}\.js$/.test(url.pathname)) {
       res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(APP_JS);
       return;
     }

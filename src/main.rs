@@ -182,7 +182,13 @@ fn run() -> Result<ExitCode> {
 fn existing_app_scripts(root: &std::path::Path) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     for entry in fs::read_dir(root).with_context(|| format!("cannot read {}", root.display()))? {
-        let path = entry?.path();
+        let entry = entry?;
+        // Only regular files can be sidecars: skip directories and symlinks so a
+        // lookalike never reaches remove_file (which would fail confusingly).
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let path = entry.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
         if canon_builder::is_app_sidecar(name) {
             found.push(path);

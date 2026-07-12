@@ -1,7 +1,7 @@
-// Test server: serves the REAL built index.html, with the minified inline
-// script swapped for the pristine templates/app.js source. The two are
-// behaviorally identical (the shipped script is minified from this file),
-// and the swap makes V8 coverage map 1:1 onto app.js lines.
+// Test server: serves the REAL built index.html and its externalized app
+// script. The page loads a content-hashed app.<hash>.js; this server answers
+// that request with the pristine templates/app.js source (the deployed file is
+// this, minified), so V8 coverage maps 1:1 onto app.js lines.
 //
 // Variant pages (query-selected) surgically alter the page so tests can
 // reach defensive branches the real content never triggers:
@@ -27,14 +27,6 @@ function replaceOnce(hay: string, needle: string, replacement: string, what: str
     throw new Error(`${what}: expected exactly one occurrence of ${JSON.stringify(needle)}`);
   }
   return hay.slice(0, i) + replacement + hay.slice(i + needle.length);
-}
-
-// The app script is the only bare `<script>` element in the minified page.
-function withSourceScript(html: string): string {
-  const open = html.lastIndexOf("<script>");
-  if (open === -1) throw new Error("bare <script> not found");
-  const close = html.indexOf("</script>", open);
-  return html.slice(0, open) + "<script>" + APP_JS + "</script>" + html.slice(close + "</script>".length);
 }
 
 function locateEdgeBlob(html: string): { contentStart: number; contentEnd: number } {
@@ -95,11 +87,19 @@ function withPrefill(html: string, value: string): string {
 export function startServer(): Promise<{ server: http.Server; origin: string }> {
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
+    // The externalized, content-hashed app script: answer with the pristine
+    // source so coverage maps onto templates/app.js (deployed = this, minified).
+    // The hash is a fixed 12 lowercase hex (HASH_LEN in src/lib.rs); matching
+    // that exact shape surfaces a mis-named reference instead of masking it.
+    if (/^\/app\.[0-9a-f]{12}\.js$/.test(url.pathname)) {
+      res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(APP_JS);
+      return;
+    }
     if (url.pathname !== "/") {
       res.writeHead(404).end();
       return;
     }
-    let html = withSourceScript(PAGE);
+    let html = PAGE;
     if (url.searchParams.get("dense")) html = withDenseEdges(html);
     if (url.searchParams.get("edgecases")) html = withEdgeCases(html);
     const prefill = url.searchParams.get("prefill");

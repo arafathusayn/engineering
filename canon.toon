@@ -743,7 +743,7 @@ cards[208]:
     d: "Every bug fix ships with a test that failed before the fix and passes after: the bug’s tombstone."
     u: "non-negotiable ritual; bugs cluster, and the second occurrence of a fixed bug is a process failure."
     w: "write the test first and watch it fail, or you may be enshrining a test that never detected anything."
-    l: []
+    l[0]:
   - n: Test Doubles & Service Stubs
     c: Testing
     s: Discipline
@@ -2530,38 +2530,3 @@ lineage:
   "Loop Engineering":
     y: 2026
     p[2]: Harness Engineering,Bound Everything
-layout:
-  dataBreaks[32]{at,label}:
-    0,PRINCIPLES
-    23,""
-    23,LAWS & MAXIMS
-    42,TYPES & DATA
-    53,""
-    53,ERRORS & RESILIENCE
-    68,""
-    68,TESTING
-    78,""
-    78,SECURITY
-    85,GOF PATTERNS
-    86,""
-    91,""
-    98,""
-    109,ARCHITECTURE
-    117,""
-    124,""
-    137,""
-    137,DELIVERY & OPS
-    149,""
-    149,PERFORMANCE & CONCURRENCY
-    154,""
-    154,PRAGMATISM & TACTICS
-    160,""
-    166,""
-    173,"DESIGN PATTERNS: MODERN SUCCESSORS"
-    181,""
-    181,ANTI-PATTERNS
-    188,""
-    188,RETHINKS
-    199,""
-    199,AI-ERA (2024-2026)
-  lineageRows[171]: 1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,5,7,6,5,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,3,3,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,4,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1

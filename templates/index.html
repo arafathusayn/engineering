@@ -1,8 +1,12 @@
-<!-- PARSE GUIDE: All structured content lives in the single inline <script> at the end of <body>.
-DATA = JS array of card objects: {n:name, c:category, s:subgroup, o:origin, d:definition, u:use-when, w:watch-out, ul/wl:optional label overrides ("Spot it"/"Escape", "Takeaway"/"Nuance"), l:[[sourceLabel, url], ...]}.
-LINEAGE = {cardName: {y:year, p:[predecessorNames]}}; a "!" prefix on a predecessor means "challenges" (else "builds on"); edges always point earlier to later, so the graph is a DAG; names absent from LINEAGE are undated folklore.
-CATS = ordered category list; INTROS = {category: intro}. Card ids are slugified names; anchors are "card-" + slug.
-To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at runtime window.__canon = {edges:[[srcId,tgtId],...], misses:[]} exposes the resolved graph. -->
+<!-- PARSE GUIDE: This page is generated — do not edit; the source of truth is canon.toon (TOON
+format, https://toonformat.dev) rendered by the Rust builder in this repository (cargo run). All content
+is pre-rendered server-side; no JavaScript is needed to read it. Cards are article.card elements with
+id="card-"+slug, data-cat, and data-search (the search haystack); lineage cross-references are plain
+anchors a.xref[data-id] labeled "Builds on"/"Challenges"/"Leads to"/"Challenged by". The chronological
+view is pre-rendered under #chronoView as .crow[data-id] rows grouped by decade headers (h2.cdecade).
+The lineage DAG is embedded as JSON in <script type="application/json" id="edgeData">:
+{edges:[[srcId,tgtId,challenges01],...], misses:[...]}; at runtime window.__canon = {edges:[[srcId,tgtId],...],
+misses:[...]} exposes the same graph. To extract structured data, parse canon.toon. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -76,6 +80,7 @@ To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at ru
     --warn: #ff9f0a;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
+  [hidden] { display: none !important; }
   .hero h1, .section > h2, .card h4 { text-wrap: balance; }
   .lede, .intro, .cintro, .card .def, .card .row, .hero .fine { text-wrap: pretty; }
   /* Overscroll: vertical bounce is disabled where supported (overscroll-behavior-y).
@@ -380,17 +385,54 @@ To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at ru
       </div>
     </div>
   </div>
-  <nav class="chips" id="chips" aria-label="Filter by category"></nav>
+  <nav class="chips" id="chips" aria-label="Filter by category">
+<button type="button" class="chip" data-cat="All" aria-pressed="true">All<span class="n">· {{ total }}</span></button>
+{%- for chip in chips %}
+<button type="button" class="chip" data-cat="{{ chip.cat }}" aria-pressed="false">{{ chip.cat }}<span class="n">{{ chip.count }}</span></button>
+{%- endfor %}
+</nav>
 </header>
 
 <section class="hero">
   <h1>Every principle, practice &amp; pattern.<br><em>And when to reach for each.</em></h1>
   <p class="lede">A curated field guide to software engineering’s named knowledge: foundational principles, laws and maxims, pragmatic tactics, defensive practices, design patterns classic and modern, architecture, delivery discipline, and the anti-patterns and rethinks that keep the canon honest. It spans Turing’s 1936 limit to the AI-era evidence of 2026, and lineage links weave every entry into one chronological graph.</p>
   <p class="fine"><b>How to read this page.</b> Definitions and origins follow the linked sources, retrieved and verified 11 July 2026. The <b>Use when</b> / <b>Watch out</b> lines are editorial synthesis: judgment, not citation. Lineage links between cards are synthesis too, except where the later work cites the earlier one. Press <b>/</b> to search, filter with the category pills, and flip the List·Chrono toggle for the time-ordered graph view. No finite catalog is complete; this one aims to cover what practitioners actually name and reach for.</p>
-  <p class="count-line" id="countLine" aria-live="polite"></p>
+  <p class="count-line" id="countLine" aria-live="polite">{{ total }} entries · {{ cats_len }} categories</p>
 </section>
 
-<main id="main"></main>
+<main id="main">
+<div id="listView">
+{%- for sec in sections %}
+<section class="section" data-cat="{{ sec.cat }}">
+<h2>{{ sec.cat }}</h2>
+{%- if !sec.intro.is_empty() %}
+<p class="intro">{{ sec.intro }}</p>
+{%- endif %}
+{%- for grp in sec.groups %}
+{%- if !grp.subhead.is_empty() %}
+<h3 class="subhead">{{ grp.subhead }}</h3>
+{%- endif %}
+<div class="grid">
+{%- for card in grp.cards %}
+{% include "card.html" %}
+{%- endfor %}
+</div>
+{%- endfor %}
+</section>
+{%- endfor %}
+</div>
+<div id="chronoView" hidden>
+<p class="cintro">One idea per row, placed on its decade. The curves at left are lineage: solid means builds on, dashed means challenges. Click a row to light its whole chain (Esc clears); years appear only where the cited origin states one, so decade bands carry the rest.</p>
+<div class="chrono">
+{%- for dec in decades %}
+<h2 class="cdecade">{{ dec.label }}</h2>
+{%- for row in dec.rows %}
+<div class="crow" data-id="{{ row.id }}" role="button" tabindex="0" aria-pressed="false"><span class="yr">{{ row.yr }}</span><span class="dot" aria-hidden="true"></span><span class="nm">{{ row.n }}</span><span class="ct">{{ row.c }}</span><a class="go" href="#card-{{ row.id }}" data-id="{{ row.id }}" aria-label="Open {{ row.n }} in list view">card ↗</a></div>
+{%- endfor %}
+{%- endfor %}
+</div>
+</div>
+</main>
 <p class="empty" id="empty" role="status">No matches. Try fewer words, or clear the category filter.</p>
 
 <footer>
@@ -400,448 +442,9 @@ To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at ru
   </div>
 </footer>
 
+<script type="application/json" id="edgeData">{{ edge_json|safe }}</script>
 <script>
-"use strict";
-
-const CATS = "__CANON_CATS__";
-
-const INTROS = "__CANON_INTROS__";
-
-/* Each entry: n name · c category · s subgroup · o origin · d definition ·
-   u "use when" (synthesis) · w "watch out" (synthesis) · l [[label,url],…] */
-const DATA = "__CANON_DATA__";
-
-/* ---------- lineage DAG: year + predecessors ("!" prefix = challenges) ---------- */
-const LINEAGE = "__CANON_LINEAGE__";
-
-function slugify(n) {
-  return n.toLowerCase().replace(/[’'“”"().,:&!?·\/]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-}
-const __misses = [];
-for (const it of DATA) {
-  const m = LINEAGE[it.n];
-  if (m) { it.y = m.y; it.p = m.p || []; } else { it.p = []; }
-  it.id = slugify(it.n);
-}
-for (const k of Object.keys(LINEAGE)) {
-  if (!DATA.some(it => it.n === k)) __misses.push("key:" + k);
-}
-const BYNAME = new Map(DATA.map(it => [it.n, it]));
-const BYID = new Map(DATA.map(it => [it.id, it]));
-const EDGES = [];
-for (const it of DATA) {
-  for (const raw of it.p) {
-    const x = raw.charAt(0) === "!";
-    const name = x ? raw.slice(1) : raw;
-    const src = BYNAME.get(name);
-    if (!src) { __misses.push(it.n + " -> " + name); continue; }
-    EDGES.push({ s: src, t: it, x });
-  }
-}
-const INS = new Map(), OUTS = new Map();
-EDGES.forEach((e, i) => {
-  if (!INS.has(e.t.id)) INS.set(e.t.id, []);
-  INS.get(e.t.id).push(i);
-  if (!OUTS.has(e.s.id)) OUTS.set(e.s.id, []);
-  OUTS.get(e.s.id).push(i);
-});
-function chain(id) {
-  const lit = new Set([id]), litE = new Set();
-  const up = [id];
-  while (up.length) {
-    const n = up.pop();
-    for (const i of (INS.get(n) || [])) {
-      if (!litE.has(i)) { litE.add(i); const s = EDGES[i].s.id; if (!lit.has(s)) { lit.add(s); up.push(s); } }
-    }
-  }
-  const dn = [id];
-  while (dn.length) {
-    const n = dn.pop();
-    for (const i of (OUTS.get(n) || [])) {
-      if (!litE.has(i)) { litE.add(i); const t = EDGES[i].t.id; if (!lit.has(t)) { lit.add(t); dn.push(t); } }
-    }
-  }
-  return { lit, litE };
-}
-window.__canon = { edges: EDGES.map(e => [e.s.id, e.t.id]), misses: __misses };
-
-/* ---------- rendering ---------- */
-const mainEl = document.getElementById("main");
-const emptyEl = document.getElementById("empty");
-const chipsEl = document.getElementById("chips");
-const qEl = document.getElementById("q");
-const countLine = document.getElementById("countLine");
-
-let activeCat = "All";
-
-function el(tag, cls, text) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (text) e.textContent = text;
-  return e;
-}
-
-function buildCard(item) {
-  const card = el("article", "card");
-  card.id = "card-" + item.id;
-  card.appendChild(el("h4", null, item.n));
-  card.appendChild(el("div", "origin", item.o || ""));
-  card.appendChild(el("p", "def", item.d || ""));
-  if (item.u) {
-    const r = el("p", "row use");
-    const b = el("b", null, (item.ul || "Use when") + " ");
-    r.appendChild(b); r.appendChild(document.createTextNode(item.u));
-    card.appendChild(r);
-  } else card.appendChild(el("p", "row use empty"));
-  if (item.w) {
-    const r = el("p", "row watch");
-    const b = el("b", null, (item.wl || "Watch out") + " ");
-    r.appendChild(b); r.appendChild(document.createTextNode(item.w));
-    card.appendChild(r);
-  } else card.appendChild(el("p", "row watch empty"));
-  {
-    const links = el("div", "links" + (item.l && item.l.length ? "" : " empty"));
-    for (const [label, url] of (item.l || [])) {
-      const a = el("a", null, label);
-      a.href = url; a.target = "_blank"; a.rel = "noopener";
-      a.setAttribute("aria-label", label + " · " + item.n + " (opens in new tab)");
-      links.appendChild(a);
-    }
-    card.appendChild(links);
-  }
-  const groups = [];
-  const preds = item.p.map(raw => ({ x: raw.charAt(0) === "!", it: BYNAME.get(raw.replace(/^!/, "")) })).filter(o => o.it);
-  const succs = (OUTS.get(item.id) || []).map(i => EDGES[i]);
-  const g = (label, arr, cls) => { if (arr.length) groups.push({ label, arr, cls }); };
-  g("Builds on", preds.filter(o => !o.x).map(o => o.it), "");
-  g("Challenges", preds.filter(o => o.x).map(o => o.it), "x");
-  g("Leads to", succs.filter(e => !e.x).map(e => e.t), "");
-  g("Challenged by", succs.filter(e => e.x).map(e => e.t), "x");
-  {
-    const ln = el("div", "lineage" + (groups.length ? "" : " empty"));
-    for (const grp of groups) {
-      const seg = el("span", "grp", "");
-      seg.appendChild(el("b", null, grp.label + " "));
-      grp.arr.forEach((t, i2) => {
-        if (i2) seg.appendChild(document.createTextNode(", "));
-        const a = el("a", "xref" + (grp.cls ? " x" : ""), t.n);
-        a.href = "#card-" + t.id; a.dataset.id = t.id;
-        seg.appendChild(a);
-      });
-      seg.appendChild(document.createTextNode("  "));
-      ln.appendChild(seg);
-    }
-    card.appendChild(ln);
-  }
-  return card;
-}
-
-function render() {
-  if (VIEW.mode === "chrono") { renderChrono(); return; }
-  const q = qEl.value.trim().toLowerCase();
-  mainEl.textContent = "";
-  let shown = 0;
-
-  for (const cat of CATS) {
-    const items = DATA.filter(it => it.c === cat && (activeCat === "All" || activeCat === cat) && matches(it, q));
-    if (!items.length) continue;
-
-    const section = el("section", "section");
-    section.appendChild(el("h2", null, cat));
-    if (!q && INTROS[cat]) section.appendChild(el("p", "intro", INTROS[cat]));
-
-    let currentSub = null, grid = null;
-    for (const it of items) {
-      const sub = it.s || null;
-      if (sub !== currentSub || !grid) {
-        if (sub) section.appendChild(el("h3", "subhead", sub));
-        grid = el("div", "grid");
-        section.appendChild(grid);
-        currentSub = sub;
-      }
-      grid.appendChild(buildCard(it));
-      shown++;
-    }
-    mainEl.appendChild(section);
-  }
-
-  emptyEl.style.display = shown ? "none" : "block";
-  countLine.textContent = shown === DATA.length
-    ? DATA.length + " entries · " + CATS.length + " categories"
-    : shown + " of " + DATA.length + " entries";
-}
-
-function matches(it, q) {
-  if (!q) return true;
-  const hay = (it.n + " " + (it.o||"") + " " + (it.d||"") + " " + (it.u||"") + " " + (it.w||"") + " " + it.c + " " + (it.s||"")).toLowerCase();
-  return q.split(/\s+/).every(t => hay.includes(t));
-}
-
-function buildChips() {
-  const all = el("button", "chip", "All");
-  all.appendChild(el("span", "n", "· " + DATA.length));
-  all.setAttribute("aria-pressed", "true");
-  all.onclick = () => setCat("All", all);
-  chipsEl.appendChild(all);
-  for (const cat of CATS) {
-    const b = el("button", "chip");
-    b.textContent = cat;
-    const n = el("span", "n", String(DATA.filter(i => i.c === cat).length));
-    b.appendChild(n);
-    b.setAttribute("aria-pressed", "false");
-    b.onclick = () => setCat(cat, b);
-    chipsEl.appendChild(b);
-  }
-}
-
-function setCat(cat, btn) {
-  activeCat = cat;
-  for (const c of chipsEl.children) c.setAttribute("aria-pressed", "false");
-  btn.setAttribute("aria-pressed", "true");
-  render();
-  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
-}
-
-/* ---------- appearance (in-memory only; no storage APIs) ---------- */
-const themeBtn = document.getElementById("themeBtn");
-const themeMenu = document.getElementById("themeMenu");
-const themeItems = Array.from(themeMenu.querySelectorAll("button[data-t]"));
-const metaTheme = document.getElementById("metaTheme");
-const darkMQ = matchMedia("(prefers-color-scheme: dark)");
-let themeMode = "auto";
-const themeLabels = { auto: "Auto", light: "Light", dark: "Dark" };
-
-function applyTheme(mode) {
-  themeMode = mode;
-  if (mode === "auto") delete document.documentElement.dataset.theme;
-  else document.documentElement.dataset.theme = mode;
-  for (const b of themeItems) b.setAttribute("aria-checked", String(b.dataset.t === mode));
-  themeBtn.dataset.icon = mode;
-  themeBtn.setAttribute("aria-label", "Appearance: " + themeLabels[mode]);
-  const dark = mode === "dark" || (mode === "auto" && darkMQ.matches);
-  metaTheme.setAttribute("content", dark ? "#000000" : "#f5f5f7");
-}
-
-function openThemeMenu() {
-  themeMenu.hidden = false;
-  themeMenu.classList.add("open");
-  themeBtn.setAttribute("aria-expanded", "true");
-  (themeItems.find(b => b.getAttribute("aria-checked") === "true") || themeItems[0]).focus();
-}
-function closeThemeMenu(refocus) {
-  themeMenu.classList.remove("open");
-  themeMenu.hidden = true;
-  themeBtn.setAttribute("aria-expanded", "false");
-  if (refocus) themeBtn.focus();
-}
-themeBtn.addEventListener("click", () => {
-  themeMenu.hidden ? openThemeMenu() : closeThemeMenu(true);
-});
-themeBtn.addEventListener("keydown", (e) => {
-  if (e.key === "ArrowDown" && themeMenu.hidden) { e.preventDefault(); openThemeMenu(); }
-});
-themeMenu.addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-t]");
-  if (b) { applyTheme(b.dataset.t); closeThemeMenu(true); }
-});
-themeMenu.addEventListener("keydown", (e) => {
-  const i = themeItems.indexOf(document.activeElement);
-  if (e.key === "ArrowDown") { e.preventDefault(); themeItems[(i + 1) % themeItems.length].focus(); }
-  else if (e.key === "ArrowUp") { e.preventDefault(); themeItems[(i - 1 + themeItems.length) % themeItems.length].focus(); }
-  else if (e.key === "Home") { e.preventDefault(); themeItems[0].focus(); }
-  else if (e.key === "End") { e.preventDefault(); themeItems[themeItems.length - 1].focus(); }
-  else if (e.key === "Escape") { closeThemeMenu(true); }
-  else if (e.key === "Tab") { closeThemeMenu(false); }
-});
-document.addEventListener("pointerdown", (e) => {
-  if (!themeMenu.hidden && !e.target.closest("#appearance")) closeThemeMenu(false);
-});
-darkMQ.addEventListener("change", () => { if (themeMode === "auto") applyTheme("auto"); });
-applyTheme("auto");
-
-qEl.addEventListener("input", render);
-document.addEventListener("keydown", (e) => {
-  if (e.key === "/" && document.activeElement !== qEl) { e.preventDefault(); qEl.focus(); }
-  if (e.key === "Escape" && document.activeElement === qEl) { qEl.value = ""; render(); qEl.blur(); }
-});
-
-const VIEW = { mode: "list" };
-const viewSeg = document.getElementById("viewSeg");
-let selId = null;
-
-function setView(v) {
-  VIEW.mode = v;
-  selId = null;
-  for (const b of viewSeg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
-  render();
-  window.scrollTo({ top: 0, behavior: "auto" });
-}
-viewSeg.addEventListener("click", (e) => {
-  const b = e.target.closest("button[data-v]");
-  if (b) setView(b.dataset.v);
-});
-
-function buildRow(it) {
-  const r = el("div", "crow");
-  r.dataset.id = it.id;
-  r.setAttribute("role", "button");
-  r.tabIndex = 0;
-  r.setAttribute("aria-pressed", "false");
-  const showYr = it.y && String(it.o || "").indexOf(String(it.y)) !== -1;
-  r.appendChild(el("span", "yr", showYr ? String(it.y) : ""));
-  const dot = el("span", "dot"); dot.setAttribute("aria-hidden", "true");
-  r.appendChild(dot);
-  r.appendChild(el("span", "nm", it.n));
-  r.appendChild(el("span", "ct", it.c));
-  const go = el("a", "go", "card ↗");
-  go.href = "#card-" + it.id; go.dataset.id = it.id;
-  go.setAttribute("aria-label", "Open " + it.n + " in list view");
-  r.appendChild(go);
-  return r;
-}
-
-function renderChrono() {
-  const q = qEl.value.trim().toLowerCase();
-  mainEl.textContent = "";
-  const items = DATA.filter(it => (activeCat === "All" || it.c === activeCat) && matches(it, q));
-  const dated = items.filter(i => i.y).sort((a, b) => a.y - b.y || a.n.localeCompare(b.n));
-  const undated = items.filter(i => !i.y).sort((a, b) => a.n.localeCompare(b.n));
-  mainEl.appendChild(el("p", "cintro", "One idea per row, placed on its decade. The curves at left are lineage: solid means builds on, dashed means challenges. Click a row to light its whole chain (Esc clears); years appear only where the cited origin states one, so decade bands carry the rest."));
-  const wrap = el("div", "chrono");
-  let dec = null;
-  for (const it of dated) {
-    const d = Math.floor(it.y / 10) * 10;
-    if (d !== dec) { dec = d; wrap.appendChild(el("h2", "cdecade", d + "s")); }
-    wrap.appendChild(buildRow(it));
-  }
-  if (undated.length) {
-    wrap.appendChild(el("h2", "cdecade", "Undated · folklore & standing practice"));
-    for (const it of undated) wrap.appendChild(buildRow(it));
-  }
-  mainEl.appendChild(wrap);
-  emptyEl.style.display = items.length ? "none" : "block";
-  requestAnimationFrame(() => {
-    const n = drawEdges(wrap);
-    countLine.textContent = items.length + " of " + DATA.length + " entries · " + n + " lineage links in view";
-  });
-}
-
-function drawEdges(container) {
-  const rows = new Map();
-  container.querySelectorAll(".crow[data-id]").forEach(r => rows.set(r.dataset.id, r));
-  let svg = container.querySelector("svg.cedges");
-  if (!svg) {
-    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("class", "cedges");
-    container.prepend(svg);
-  }
-  svg.setAttribute("width", container.clientWidth);
-  svg.setAttribute("height", container.scrollHeight);
-  svg.textContent = "";
-  const cRect = container.getBoundingClientRect();
-  const pt = (r) => {
-    const b = r.querySelector(".dot").getBoundingClientRect();
-    return { x: b.left - cRect.left + b.width / 2, y: b.top - cRect.top + b.height / 2 };
-  };
-  const vis = [];
-  EDGES.forEach((e, i) => {
-    const s = rows.get(e.s.id), t = rows.get(e.t.id);
-    if (s && t) vis.push({ e, i, a: pt(s), b: pt(t) });
-  });
-  for (const o of vis) { o.y1 = Math.min(o.a.y, o.b.y); o.y2 = Math.max(o.a.y, o.b.y); }
-  vis.sort((p, q) => (p.y2 - p.y1) - (q.y2 - q.y1));
-  const narrow = container.clientWidth < 640;
-  const laneBase = narrow ? 12 : 18, laneGap = narrow ? 5 : 9;
-  const lanes = [];
-  for (const o of vis) {
-    let L = 0;
-    for (; L < lanes.length; L++) {
-      if (!lanes[L].some(iv => o.y1 < iv[1] && iv[0] < o.y2)) break;
-    }
-    if (L === lanes.length) lanes.push([]);
-    if (L > 12) L = 12;
-    lanes[L].push([o.y1, o.y2]);
-    o.lane = L;
-  }
-  for (const o of vis) {
-    const lx = Math.max(4, o.a.x - (laneBase + o.lane * laneGap));
-    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    p.setAttribute("d", "M " + (o.a.x - 5) + " " + o.a.y + " C " + lx + " " + o.a.y + ", " + lx + " " + o.b.y + ", " + (o.b.x - 5) + " " + o.b.y);
-    p.setAttribute("class", "ce" + (o.e.x ? " x" : ""));
-    p.dataset.i = o.i;
-    svg.appendChild(p);
-  }
-  applySel(container);
-  return vis.length;
-}
-
-function applySel(container) {
-  const res = selId ? chain(selId) : null;
-  container.classList.toggle("dimmed", !!selId);
-  container.querySelectorAll(".crow").forEach(r => {
-    const on = res && res.lit.has(r.dataset.id);
-    r.classList.toggle("lit", !!on);
-    r.classList.toggle("sel", selId === r.dataset.id);
-    r.setAttribute("aria-pressed", String(selId === r.dataset.id));
-  });
-  container.querySelectorAll("path.ce").forEach(p => {
-    p.classList.toggle("lit", !!(res && res.litE.has(+p.dataset.i)));
-  });
-}
-
-function toggleSel(id) {
-  selId = (selId === id) ? null : id;
-  const c = mainEl.querySelector(".chrono");
-  if (c) applySel(c);
-}
-
-function gotoCard(id) {
-  selId = null;
-  if (VIEW.mode !== "list") setView("list");
-  const it = BYID.get(id);
-  if (!it) return;
-  if (activeCat !== "All" && it.c !== activeCat) {
-    activeCat = "All";
-    for (const c of chipsEl.children) c.setAttribute("aria-pressed", String(c === chipsEl.firstElementChild));
-  }
-  if (qEl.value) qEl.value = "";
-  render();
-  const elc = document.getElementById("card-" + id);
-  if (elc) {
-    elc.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
-    elc.classList.add("pulse");
-    setTimeout(() => elc.classList.remove("pulse"), 1800);
-  }
-}
-
-mainEl.addEventListener("click", (e) => {
-  const a = e.target.closest("a.xref, a.go");
-  if (a && a.dataset.id) { e.preventDefault(); gotoCard(a.dataset.id); return; }
-  const r = e.target.closest(".crow");
-  if (r) toggleSel(r.dataset.id);
-});
-mainEl.addEventListener("keydown", (e) => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("crow")) {
-    e.preventDefault();
-    toggleSel(e.target.dataset.id);
-  }
-});
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && selId) {
-    selId = null;
-    const c = mainEl.querySelector(".chrono");
-    if (c) applySel(c);
-  }
-});
-let __rzT;
-window.addEventListener("resize", () => {
-  if (VIEW.mode !== "chrono") return;
-  clearTimeout(__rzT);
-  __rzT = setTimeout(() => { const c = mainEl.querySelector(".chrono"); if (c) drawEdges(c); }, 150);
-});
-
-buildChips();
-render();
+{% include "app.js" %}
 </script>
 </body>
 </html>

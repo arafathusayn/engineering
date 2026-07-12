@@ -1,0 +1,9 @@
+<article class="card" id="card-{{ card.id }}" data-cat="{{ card.c }}" data-search="{{ card.search }}">
+<h4>{{ card.n }}</h4>
+<div class="origin">{{ card.o }}</div>
+<p class="def">{{ card.d }}</p>
+{% if !card.u.is_empty() %}<p class="row use"><b>{{ card.ul }} </b>{{ card.u }}</p>{% else %}<p class="row use empty"></p>{% endif %}
+{% if !card.w.is_empty() %}<p class="row watch"><b>{{ card.wl }} </b>{{ card.w }}</p>{% else %}<p class="row watch empty"></p>{% endif %}
+{% if !card.links.is_empty() %}<div class="links">{% for lk in card.links %}<a href="{{ lk.url }}" target="_blank" rel="noopener" aria-label="{{ lk.label }} · {{ card.n }} (opens in new tab)">{{ lk.label }}</a>{% endfor %}</div>{% else %}<div class="links empty"></div>{% endif %}
+{% if !card.groups.is_empty() %}<div class="lineage">{% for grp in card.groups %}<span class="grp"><b>{{ grp.label }} </b>{% for r in grp.refs %}{% if !loop.first %}, {% endif %}<a class="xref{% if grp.x %} x{% endif %}" href="#card-{{ r.id }}" data-id="{{ r.id }}">{{ r.n }}</a>{% endfor %}  </span>{% endfor %}</div>{% else %}<div class="lineage empty"></div>{% endif %}
+</article>

@@ -184,7 +184,7 @@ fn existing_app_scripts(root: &std::path::Path) -> Result<Vec<PathBuf>> {
     for entry in fs::read_dir(root).with_context(|| format!("cannot read {}", root.display()))? {
         let path = entry?.path();
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-        if name.starts_with("app.") && name.ends_with(".js") {
+        if canon_builder::is_app_sidecar(name) {
             found.push(path);
         }
     }

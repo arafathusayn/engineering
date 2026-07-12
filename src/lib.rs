@@ -120,9 +120,14 @@ fn externalize_app_script(html: String) -> Result<(String, Vec<Asset>)> {
     Ok((out, vec![Asset { name, content: js }]))
 }
 
-/// FNV-1a 64 over the bytes, truncated to 12 hex digits — ample to flip the
-/// filename on any content change (this guards cache freshness, not against a
-/// motivated collision).
+/// Hex length of a sidecar's content hash. The one place the `app.<hash>.js`
+/// naming scheme is defined — `content_hash` produces it and `is_app_sidecar`
+/// recognizes it, so the two can never drift.
+const HASH_LEN: usize = 12;
+
+/// FNV-1a 64 over the bytes, truncated to `HASH_LEN` hex digits — ample to flip
+/// the filename on any content change (this guards cache freshness, not against
+/// a motivated collision).
 fn content_hash(bytes: &[u8]) -> String {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
@@ -131,7 +136,20 @@ fn content_hash(bytes: &[u8]) -> String {
         hash ^= u64::from(b);
         hash = hash.wrapping_mul(PRIME);
     }
-    format!("{hash:016x}")[..12].to_string()
+    format!("{hash:016x}")[..HASH_LEN].to_string()
+}
+
+/// Whether `name` is one of the content-hashed app sidecars this builder emits
+/// (`app.<HASH_LEN lowercase hex>.js`). The CLI uses it to find stale sidecars
+/// to replace; the exact-shape match means an unrelated `app.js` (or any other
+/// `app.*.js`) in the root is never mistaken for one and deleted.
+pub fn is_app_sidecar(name: &str) -> bool {
+    match name.strip_prefix("app.").and_then(|s| s.strip_suffix(".js")) {
+        Some(hash) => {
+            hash.len() == HASH_LEN && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+        }
+        None => false,
+    }
 }
 
 /// Minify the rendered page. Comments are kept — the leading PARSE GUIDE
@@ -185,6 +203,23 @@ mod tests {
     fn content_hash_is_stable_content_sensitive_and_short() {
         assert_eq!(content_hash(b"abc"), content_hash(b"abc"));
         assert_ne!(content_hash(b"abc"), content_hash(b"abd"));
-        assert_eq!(content_hash(b"abc").len(), 12);
+        assert_eq!(content_hash(b"abc").len(), HASH_LEN);
+    }
+
+    #[test]
+    fn is_app_sidecar_matches_only_the_hashed_shape() {
+        // A real emitted name round-trips.
+        let name = externalize_app_script("<script>x()</script>".to_string()).unwrap().1[0]
+            .name
+            .clone();
+        assert!(is_app_sidecar(&name));
+        assert!(is_app_sidecar("app.0123456789ab.js"));
+        // The footgun the reviewer flagged: an unrelated app.js is NOT a sidecar.
+        assert!(!is_app_sidecar("app.js"));
+        assert!(!is_app_sidecar("app.notahexstring.js")); // non-hex
+        assert!(!is_app_sidecar("app.0123456789.js")); // too short (10)
+        assert!(!is_app_sidecar("app.0123456789abc.js")); // too long (13)
+        assert!(!is_app_sidecar("app.0123456789AB.js")); // uppercase hex
+        assert!(!is_app_sidecar("index.html"));
     }
 }

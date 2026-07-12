@@ -50,16 +50,10 @@ pub fn collate_key(name: &str) -> (Vec<(u8, char)>, String) {
     let primary = name
         .to_lowercase()
         .nfkd()
-        .filter(|c| !is_combining_mark(*c))
+        .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
         .map(|c| (char_class(c), c))
         .collect();
     (primary, name.to_string())
-}
-
-/// Combining marks stripped after NFKD decomposition (Latin diacritics live
-/// in the Combining Diacritical Marks blocks).
-fn is_combining_mark(c: char) -> bool {
-    matches!(c as u32, 0x0300..=0x036F | 0x1AB0..=0x1AFF | 0x1DC0..=0x1DFF | 0x20D0..=0x20FF)
 }
 
 #[cfg(test)]

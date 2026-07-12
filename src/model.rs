@@ -61,7 +61,7 @@ pub struct Lineage {
     pub y: i64,
     /// Predecessor card names; a `!` prefix means "challenges".
     #[serde(default)]
-    pub p: Option<Vec<String>>,
+    pub p: Vec<String>,
 }
 
 impl Card {
@@ -126,6 +126,25 @@ pub fn validate(canon: &Canon) -> Result<Vec<String>> {
         }
     }
 
+    // Subgroups must be contiguous runs within their category: the page is
+    // pre-rendered, so a split subgroup would show duplicate subheads when
+    // search hides the cards in between (the old client-side renderer
+    // re-merged runs per filter; a frozen DOM cannot).
+    {
+        let mut last_sub: HashMap<&str, &str> = HashMap::new();
+        let mut seen: std::collections::HashSet<(&str, &str)> = std::collections::HashSet::new();
+        for card in &canon.cards {
+            let (cat, sub) = (card.c.as_str(), card.s.as_str());
+            if last_sub.get(cat) != Some(&sub) && !seen.insert((cat, sub)) {
+                bail!(
+                    "category \"{cat}\": subgroup \"{sub}\" is split into non-contiguous runs; \
+                     keep each subgroup's cards together"
+                );
+            }
+            last_sub.insert(cat, sub);
+        }
+    }
+
     for key in canon.intros.keys() {
         if !canon.cats.contains(key) {
             warnings.push(format!("intros key \"{key}\" not in cats"));
@@ -140,26 +159,34 @@ pub fn validate(canon: &Canon) -> Result<Vec<String>> {
     Ok(warnings)
 }
 
+/// Shared test fixtures, used by this module's tests and view.rs's.
 #[cfg(test)]
-mod tests {
+pub(crate) mod fixtures {
     use super::*;
 
-    fn card(n: &str, c: &str) -> Card {
+    pub fn card(n: &str, c: &str, s: &str, o: &str) -> Card {
         Card {
             n: n.into(),
             c: c.into(),
-            s: "S".into(),
-            o: "O".into(),
+            s: s.into(),
+            o: o.into(),
             ul: None,
             wl: None,
             d: "D".into(),
             u: "U".into(),
             w: "W".into(),
-            l: vec![],
+            l: vec![("L".into(), "https://example.com".into())],
         }
     }
 
-    fn canon(cats: &[&str], cards: Vec<Card>) -> Canon {
+    pub fn lineage(y: i64, p: &[&str]) -> Lineage {
+        Lineage {
+            y,
+            p: p.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    pub fn canon(cats: &[&str], cards: Vec<Card>) -> Canon {
         Canon {
             cats: cats.iter().map(|s| s.to_string()).collect(),
             intros: cats
@@ -170,10 +197,20 @@ mod tests {
             lineage: HashMap::new(),
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fixtures::{canon, card};
+    use super::*;
+
+    fn simple(n: &str, c: &str) -> Card {
+        card(n, c, "S", "O")
+    }
 
     #[test]
     fn accepts_well_formed_data() {
-        let c = canon(&["A"], vec![card("One", "A")]);
+        let c = canon(&["A"], vec![simple("One", "A")]);
         assert!(validate(&c).unwrap().is_empty());
     }
 
@@ -187,9 +224,12 @@ mod tests {
     #[test]
     fn rejects_slug_collisions_and_unknown_categories() {
         // Same name modulo punctuation → same slug.
-        let c = canon(&["A"], vec![card("Foo Bar", "A"), card("Foo, Bar!", "A")]);
+        let c = canon(
+            &["A"],
+            vec![simple("Foo Bar", "A"), simple("Foo, Bar!", "A")],
+        );
         assert!(validate(&c).unwrap_err().to_string().contains("collide"));
-        let c = canon(&["A"], vec![card("One", "B")]);
+        let c = canon(&["A"], vec![simple("One", "B")]);
         assert!(
             validate(&c)
                 .unwrap_err()
@@ -199,8 +239,32 @@ mod tests {
     }
 
     #[test]
+    fn rejects_non_contiguous_subgroups() {
+        let c = canon(
+            &["A"],
+            vec![
+                card("One", "A", "X", "O"),
+                card("Two", "A", "Y", "O"),
+                card("Three", "A", "X", "O"),
+            ],
+        );
+        assert!(
+            validate(&c)
+                .unwrap_err()
+                .to_string()
+                .contains("non-contiguous")
+        );
+        // The same subgroup name in different categories is fine.
+        let c = canon(
+            &["A", "B"],
+            vec![card("One", "A", "X", "O"), card("Two", "B", "X", "O")],
+        );
+        assert!(validate(&c).is_ok());
+    }
+
+    #[test]
     fn warns_on_intro_mismatches() {
-        let mut c = canon(&["A"], vec![card("One", "A")]);
+        let mut c = canon(&["A"], vec![simple("One", "A")]);
         c.intros.insert("Ghost".into(), "x".into());
         c.intros.remove("A");
         let warnings = validate(&c).unwrap();
@@ -211,7 +275,7 @@ mod tests {
 
     #[test]
     fn label_overrides_fall_back_when_empty() {
-        let mut one = card("One", "A");
+        let mut one = simple("One", "A");
         assert_eq!(one.use_label(), "Use when");
         one.ul = Some(String::new());
         assert_eq!(one.use_label(), "Use when");

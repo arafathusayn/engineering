@@ -1,15 +1,19 @@
 //! Build the Engineering Canon page: canon.toon (content, the source of
 //! truth) + templates/ (presentation) → a fully pre-rendered, minified
 //! index.html that needs no JavaScript to read.
+//!
+//! The library is pure with respect to its environment: callers resolve the
+//! project root (see `main.rs`) and pass it in.
 
 pub mod model;
+mod source_hash;
 pub mod text;
 pub mod view;
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use askama::Template;
 
 pub struct Build {
@@ -21,36 +25,35 @@ pub struct Build {
     pub edges: usize,
 }
 
-/// The repository root: all inputs and the output live here. Resolved at
-/// runtime so the shipped binary works anywhere, not just where it was
-/// compiled: explicit `CANON_ROOT` first, then a cwd containing canon.toon,
-/// then the checkout the binary sits in (`bin/..`), and finally the
-/// compile-time manifest dir (covers `cargo run` from a subdirectory).
-pub fn project_root() -> PathBuf {
-    if let Some(root) = std::env::var_os("CANON_ROOT") {
-        return PathBuf::from(root);
-    }
-    if let Ok(cwd) = std::env::current_dir()
-        && cwd.join("canon.toon").exists()
-    {
-        return cwd;
-    }
-    if let Ok(exe) = std::env::current_exe()
-        && let Some(repo) = exe.parent().and_then(|d| d.parent())
-        && repo.join("canon.toon").exists()
-    {
-        return repo.to_path_buf();
-    }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+pub fn output_path(root: &Path) -> PathBuf {
+    root.join("index.html")
 }
 
-pub fn output_path() -> PathBuf {
-    project_root().join("index.html")
+/// The source hash this binary was compiled from (see src/source_hash.rs).
+pub fn embedded_source_hash() -> &'static str {
+    env!("CANON_SOURCE_HASH")
+}
+
+/// Refuse to run from a binary that no longer matches the checkout's
+/// sources: a stale builder would build and validate the page with outdated
+/// logic and templates, and its own `--check` would happily agree with it.
+pub fn verify_freshness(root: &Path) -> Result<()> {
+    let actual = source_hash::source_hash(root)
+        .with_context(|| format!("cannot hash sources under {}", root.display()))?;
+    if actual != embedded_source_hash() {
+        bail!(
+            "this canon-builder binary is stale: it was built from sources hashing \
+             {}, but the checkout hashes {actual}. Rebuild and re-ship it:\n  \
+             cargo build --profile dist --target x86_64-unknown-linux-musl\n  \
+             cp target/x86_64-unknown-linux-musl/dist/canon-builder bin/canon-builder",
+            embedded_source_hash()
+        );
+    }
+    Ok(())
 }
 
 /// Decode, validate, derive, render, minify.
-pub fn build() -> Result<Build> {
-    let root = project_root();
+pub fn build(root: &Path) -> Result<Build> {
     let canon = model::load(&root.join("canon.toon"))?;
     let mut warnings = model::validate(&canon)?;
 
@@ -69,7 +72,7 @@ pub fn build() -> Result<Build> {
         warnings,
         cards: canon.cards.len(),
         categories: canon.cats.len(),
-        lineage_entries: derived.lineage_entries,
+        lineage_entries: canon.lineage.len(),
         edges: derived.edges,
     })
 }

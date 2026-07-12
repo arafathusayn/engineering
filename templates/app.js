@@ -5,8 +5,9 @@
    by the Rust generator); this script only filters, navigates and draws the
    chrono lineage curves. With JavaScript disabled the whole canon is still
    readable and every cross-reference link still works as a plain anchor.
-   NOTE: this file is injected verbatim into the page by the builder — it is
-   never template-processed, so any JS syntax is safe here. */
+   NOTE: the builder injects this file as opaque data (never parsed as
+   template syntax, though the minifier may compress it), so any JS syntax
+   is safe here. */
 
 /* ---------- lineage graph (embedded as JSON data, not markup) ---------- */
 const EDGE_DATA = JSON.parse(document.getElementById("edgeData").textContent);
@@ -50,7 +51,9 @@ const qEl = document.getElementById("q");
 const countLine = document.getElementById("countLine");
 const viewSeg = document.getElementById("viewSeg");
 
-const CARD_PREFIX = "card-";
+/* The anchor namespace is defined once in the builder (view.rs) and
+   published on the page; read it back rather than re-declaring it. */
+const CARD_PREFIX = mainEl.dataset.cardPrefix;
 
 /* The search haystack is derived from the same seven fields the page has
    always searched — name, origin, definition, use-when, watch-out, category,
@@ -162,7 +165,7 @@ function renderChrono(vis) {
 /* ---------- chrono lineage curves (geometry depends on layout, so JS-only) ---------- */
 function drawEdges(container) {
   const rows = new Map();
-  container.querySelectorAll(".crow[data-id]:not([hidden])").forEach(r => rows.set(r.dataset.id, r));
+  for (const r of ROWS) if (!r.hidden) rows.set(r.dataset.id, r);
   let svg = container.querySelector("svg.cedges");
   if (!svg) {
     svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -217,7 +220,7 @@ function drawEdges(container) {
 function applySel(container) {
   const res = selId ? chain(selId) : null;
   container.classList.toggle("dimmed", !!selId);
-  container.querySelectorAll(".crow").forEach(r => {
+  ROWS.forEach(r => {
     const on = res && res.lit.has(r.dataset.id);
     r.classList.toggle("lit", !!on);
     r.classList.toggle("sel", selId === r.dataset.id);

@@ -12,6 +12,11 @@ use askama::Template;
 use crate::model::{Canon, Lineage};
 use crate::text::{collate_key, slugify};
 
+/// The one place the `#card-…` anchor namespace is defined: templates
+/// consume it as `{{ card_prefix }}`, and app.js reads it back from the
+/// rendered page's `data-card-prefix` attribute.
+pub const CARD_PREFIX: &str = "card-";
+
 pub struct Chip {
     pub category: String,
     pub count: usize,
@@ -74,6 +79,7 @@ pub struct Decade {
 #[template(path = "index.html")]
 pub struct Page {
     pub total: usize,
+    pub card_prefix: &'static str,
     pub chips: Vec<Chip>,
     pub sections: Vec<Section>,
     pub decades: Vec<Decade>,
@@ -84,7 +90,6 @@ pub struct Page {
 pub struct Derived {
     pub page: Page,
     pub warnings: Vec<String>,
-    pub lineage_entries: usize,
     pub edges: usize,
 }
 
@@ -223,6 +228,7 @@ pub fn derive(canon: &Canon, script: String) -> Result<Derived> {
     Ok(Derived {
         page: Page {
             total: canon.cards.len(),
+            card_prefix: CARD_PREFIX,
             chips,
             sections,
             decades,
@@ -230,14 +236,16 @@ pub fn derive(canon: &Canon, script: String) -> Result<Derived> {
             script: guard_inline_script(script),
         },
         warnings,
-        lineage_entries: canon.lineage.len(),
         edges: edges.len(),
     })
 }
 
 /// Per-card year and resolved predecessors, plus the misses diagnostic in
-/// the old page's format and order: sorted `key:<orphan>` entries first,
-/// then `<card> -> <missing predecessor>` (with any `!` prefix stripped).
+/// the old page's format: `key:<orphan>` entries first, then
+/// `<card> -> <missing predecessor>` (with any `!` prefix stripped).
+/// One deliberate divergence from the old page: orphan keys are sorted
+/// (the old page used object insertion order, which the TOON decode path
+/// does not preserve) so the build stays byte-deterministic.
 #[allow(clippy::type_complexity)]
 fn lineage_graph(
     canon: &Canon,
@@ -258,7 +266,7 @@ fn lineage_graph(
             continue;
         };
         years[i] = Some(*y);
-        for raw in p.as_deref().unwrap_or(&[]) {
+        for raw in p {
             let (challenges, name) = match raw.strip_prefix('!') {
                 Some(rest) => (true, rest),
                 None => (false, raw.as_str()),
@@ -291,47 +299,40 @@ fn group_by_category(canon: &Canon) -> Vec<Vec<usize>> {
     grouped
 }
 
-/// Consecutive cards sharing a subgroup form one grid under one subhead,
-/// exactly like the old renderer's run detection.
+/// Consecutive cards sharing a subgroup form one grid under one subhead.
+/// model::validate guarantees subgroups are contiguous within a category,
+/// so these runs are also the ONLY run each subgroup ever has — which keeps
+/// filtered views equivalent to the old renderer's per-filter re-grouping.
 fn subgroup_runs(
     canon: &Canon,
     items: &[usize],
     card_view: &impl Fn(usize) -> CardView,
 ) -> Vec<Group> {
-    let mut groups: Vec<Group> = Vec::new();
-    for &i in items {
-        let sub = &canon.cards[i].s;
-        if groups.last().map(|g| &g.subhead) != Some(sub) {
-            groups.push(Group {
-                subhead: sub.clone(),
-                cards: Vec::new(),
-            });
-        }
-        groups.last_mut().unwrap().cards.push(card_view(i));
-    }
-    groups
+    items
+        .chunk_by(|&a, &b| canon.cards[a].s == canon.cards[b].s)
+        .map(|run| Group {
+            subhead: canon.cards[run[0]].s.clone(),
+            cards: run.iter().map(|&i| card_view(i)).collect(),
+        })
+        .collect()
 }
 
 /// Dated cards by (year, collation), split into decade bands (floored, so
 /// BCE years band correctly); year 0 and absent both mean undated, last.
 fn decades(canon: &Canon, years: &[Option<i64>], row_view: &impl Fn(usize) -> Row) -> Vec<Decade> {
-    let is_dated = |i: &usize| years[*i].is_some_and(|y| y != 0);
-    let mut dated: Vec<usize> = (0..canon.cards.len()).filter(is_dated).collect();
+    let decade = |i: usize| years[i].unwrap().div_euclid(10) * 10;
+    let (mut dated, mut undated): (Vec<usize>, Vec<usize>) =
+        (0..canon.cards.len()).partition(|&i| years[i].is_some_and(|y| y != 0));
     dated.sort_by_cached_key(|&i| (years[i].unwrap(), collate_key(&canon.cards[i].n)));
-    let mut undated: Vec<usize> = (0..canon.cards.len()).filter(|i| !is_dated(i)).collect();
     undated.sort_by_cached_key(|&i| collate_key(&canon.cards[i].n));
 
-    let mut decades: Vec<Decade> = Vec::new();
-    for &i in &dated {
-        let label = format!("{}s", years[i].unwrap().div_euclid(10) * 10);
-        if decades.last().map(|d| &d.label) != Some(&label) {
-            decades.push(Decade {
-                label,
-                rows: Vec::new(),
-            });
-        }
-        decades.last_mut().unwrap().rows.push(row_view(i));
-    }
+    let mut decades: Vec<Decade> = dated
+        .chunk_by(|&a, &b| decade(a) == decade(b))
+        .map(|band| Decade {
+            label: format!("{}s", decade(band[0])),
+            rows: band.iter().map(|&i| row_view(i)).collect(),
+        })
+        .collect();
     if !undated.is_empty() {
         decades.push(Decade {
             label: "Undated · folklore & standing practice".to_string(),
@@ -377,33 +378,7 @@ fn guard_inline_script(script: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Card;
-
-    fn card(n: &str, c: &str, s: &str, o: &str) -> Card {
-        Card {
-            n: n.into(),
-            c: c.into(),
-            s: s.into(),
-            o: o.into(),
-            ul: None,
-            wl: None,
-            d: "D".into(),
-            u: "U".into(),
-            w: "W".into(),
-            l: vec![("L".into(), "https://example.com".into())],
-        }
-    }
-
-    fn lineage(y: i64, p: &[&str]) -> Lineage {
-        Lineage {
-            y,
-            p: if p.is_empty() {
-                None
-            } else {
-                Some(p.iter().map(|s| s.to_string()).collect())
-            },
-        }
-    }
+    use crate::model::fixtures::{card, lineage};
 
     fn fixture() -> Canon {
         Canon {

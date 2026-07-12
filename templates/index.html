@@ -404,7 +404,7 @@ canon.toon; the pre-rewrite page is archived at legacy/index.html. -->
   <p class="count-line" id="countLine" aria-live="polite">{{ total }} entries · {{ chips.len() }} categories</p>
 </section>
 
-<main id="main">
+<main id="main" data-card-prefix="{{ card_prefix }}">
 <div id="listView">
 {%- for sec in sections %}
 <section class="section" data-cat="{{ sec.category }}">

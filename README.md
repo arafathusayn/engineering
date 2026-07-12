@@ -16,7 +16,8 @@ serve it directly from the repository root.
 | `src/model.rs` | The canon.toon input model + validation (unknown fields, duplicate categories/slugs, reserved names are hard errors). |
 | `src/text.rs` | Slug and collation rules that must stay stable (`#card-…` anchors, chrono ordering). |
 | `src/view.rs` | Pure derivation into the template view model: lineage graph, cross-references, sections, decades, chips, edge JSON. |
-| `src/lib.rs` / `src/main.rs` | Build orchestration (decode → validate → derive → render → minify) and the thin CLI. |
+| `src/lib.rs` / `src/main.rs` | Build orchestration (decode → validate → derive → render → minify) and the thin CLI (root resolution, arguments). |
+| `build.rs` / `src/source_hash.rs` | Embed a hash of the compiled-in sources into the binary; every run self-verifies against the checkout, so a stale shipped binary refuses to work. |
 | `templates/index.html` | The page shell (markup + CSS) with Askama loops — presentation changes happen here. |
 | `templates/card.html`, `templates/crow.html` | One card / one chrono row, included per item. |
 | `templates/app.js` | The page's only JavaScript: progressive enhancement (search, filters, chrono lineage curves, theme) over the already-rendered DOM. Injected verbatim — never template-processed. |
@@ -36,7 +37,8 @@ cargo test                     # unit + integration tests (slug/collation parity
                                # graph derivation, determinism, page structure)
 ```
 
-No Rust toolchain? The shipped static binary does the same job:
+No Rust toolchain? The shipped static binary does the same job for content
+edits (it reads `canon.toon` and `templates/app.js` at runtime):
 
 ```sh
 ./bin/canon-builder            # rebuild index.html
@@ -44,25 +46,34 @@ No Rust toolchain? The shipped static binary does the same job:
 ```
 
 The build is deterministic; `--check` fails if `index.html` and its sources
-ever drift apart. CI never compiles Rust: `check.yml` runs the shipped
-binary on every push (seconds). The full source build + test suite
-(`build.yml`) is manual — trigger it from the Actions tab after builder
-changes, or just run `cargo test` locally.
+ever drift apart. CI enforces this without compiling Rust on content
+pushes: `check.yml` runs the shipped binary on every push and PR (seconds),
+and `build.yml` compiles from source and runs the test suite whenever
+builder files change (`src/`, `templates/`, `tests/`, `Cargo.*`, `bin/`) —
+or on demand from the Actions tab.
 
 ### Shipped binary
 
-Askama compiles the HTML templates **into** the binary, so after changing
-`src/` or `templates/*.html` (not `app.js` or `canon.toon`, which are read
-at runtime), rebuild and re-commit it:
+Askama compiles the HTML templates **into** the binary, so changing `src/`
+or `templates/*.html` requires rebuilding and re-committing it:
 
 ```sh
-cargo build --release --target x86_64-unknown-linux-musl
-cp target/x86_64-unknown-linux-musl/release/canon-builder bin/canon-builder
+rustup target add x86_64-unknown-linux-musl   # once
+cargo build --profile dist --target x86_64-unknown-linux-musl
+cp target/x86_64-unknown-linux-musl/dist/canon-builder bin/canon-builder
 ```
 
-A stale binary cannot slip through: `build.yml`'s last step runs
-`./bin/canon-builder --check`, which fails if the shipped binary no longer
-reproduces the committed page.
+A stale binary cannot slip through: at compile time the builder embeds a
+hash of every compiled-in source file (`src/`, `templates/*.html`,
+`Cargo.*`, `build.rs`), and **every run re-hashes the checkout and refuses
+to build or check when they differ** — so `check.yml` goes red on the very
+next push after an un-reshipped builder change. `canon-builder
+--source-hash` prints the embedded hash.
+
+Trade-off, made deliberately: the ~15MB binary is committed (so CI and
+no-toolchain contributors need zero setup) at the cost of adding that much
+to git history whenever the builder itself changes — which is rare now that
+content lives in `canon.toon`.
 
 ## Editing content
 

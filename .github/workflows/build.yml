@@ -1,30 +1,16 @@
 
-# Full source build: only runs when the builder itself changes (content-only
-# edits to canon.toon are covered by the fast binary gate in check.yml).
-# The last step proves the shipped bin/canon-builder is fresh — Askama
-# compiles the HTML templates into the binary, so template changes require
-# rebuilding it (see README "Shipped binary").
+# Full source build + tests — manual only (Actions tab -> build -> Run
+# workflow), so no push ever waits on a Rust compile. Day-to-day pushes are
+# gated by check.yml, which runs the shipped bin/canon-builder in seconds.
+# The binary cannot go stale silently: Askama compiles the templates into
+# it, so a src/ or template change that isn't re-shipped makes the binary's
+# output disagree with the committed index.html and check.yml goes red.
+# Run this workflow after builder changes for the full test suite, or run
+# `cargo test` locally.
 name: build
 
 on:
-  push:
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "templates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "bin/**"
-      - ".github/workflows/build.yml"
-  pull_request:
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "templates/**"
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "bin/**"
-      - ".github/workflows/build.yml"
+  workflow_dispatch:
 
 jobs:
   build:

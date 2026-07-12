@@ -44,9 +44,10 @@ No Rust toolchain? The shipped static binary does the same job:
 ```
 
 The build is deterministic; `--check` fails if `index.html` and its sources
-ever drift apart. CI enforces it two ways: `check.yml` runs the shipped
-binary on **every** push (seconds, no compilation), and `build.yml` compiles
-from source and runs the tests whenever the builder itself changes.
+ever drift apart. CI never compiles Rust: `check.yml` runs the shipped
+binary on every push (seconds). The full source build + test suite
+(`build.yml`) is manual — trigger it from the Actions tab after builder
+changes, or just run `cargo test` locally.
 
 ### Shipped binary
 

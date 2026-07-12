@@ -1,0 +1,38 @@
+
+# Full source build: only runs when the builder itself changes (content-only
+# edits to canon.toon are covered by the fast binary gate in check.yml).
+# The last step proves the shipped bin/canon-builder is fresh — Askama
+# compiles the HTML templates into the binary, so template changes require
+# rebuilding it (see README "Shipped binary").
+name: build
+
+on:
+  push:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "templates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "bin/**"
+      - ".github/workflows/build.yml"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "templates/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "bin/**"
+      - ".github/workflows/build.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
+      - run: cargo test --release
+      - run: cargo run --release -- --check
+      - name: shipped binary is fresh
+        run: ./bin/canon-builder --check

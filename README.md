@@ -22,6 +22,7 @@ serve it directly from the repository root.
 | `templates/app.js` | The page's only JavaScript: progressive enhancement (search, filters, chrono lineage curves, theme) over the already-rendered DOM. Injected verbatim — never template-processed. |
 | `tests/build.rs` | End-to-end build of the real data: determinism, structure, anchors, the JSON blob. |
 | `index.html` | **Build artifact.** Never edit by hand; regenerate with `cargo run --release`. |
+| `bin/canon-builder` | Prebuilt static Linux (musl) builder, so CI and content edits need no Rust toolchain. |
 | `legacy/index.html` | The retired hand-maintained page (inline JS renderer), kept for reference. |
 
 ## Commands
@@ -35,9 +36,32 @@ cargo test                     # unit + integration tests (slug/collation parity
                                # graph derivation, determinism, page structure)
 ```
 
+No Rust toolchain? The shipped static binary does the same job:
+
+```sh
+./bin/canon-builder            # rebuild index.html
+./bin/canon-builder --check    # drift check
+```
+
 The build is deterministic; `--check` fails if `index.html` and its sources
-ever drift apart. CI runs it on every push (`.github/workflows/check.yml`),
-so a canon.toon edit committed without regenerating the page fails the build.
+ever drift apart. CI enforces it two ways: `check.yml` runs the shipped
+binary on **every** push (seconds, no compilation), and `build.yml` compiles
+from source and runs the tests whenever the builder itself changes.
+
+### Shipped binary
+
+Askama compiles the HTML templates **into** the binary, so after changing
+`src/` or `templates/*.html` (not `app.js` or `canon.toon`, which are read
+at runtime), rebuild and re-commit it:
+
+```sh
+cargo build --release --target x86_64-unknown-linux-musl
+cp target/x86_64-unknown-linux-musl/release/canon-builder bin/canon-builder
+```
+
+A stale binary cannot slip through: `build.yml`'s last step runs
+`./bin/canon-builder --check`, which fails if the shipped binary no longer
+reproduces the committed page.
 
 ## Editing content
 

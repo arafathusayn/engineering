@@ -1,3 +1,9 @@
+
+# Fast drift gate on every push: the committed index.html must be exactly
+# what the shipped builder produces from canon.toon. Uses bin/canon-builder
+# (static musl build, templates compiled in) so no Rust toolchain or
+# compilation is needed. The full source build + tests run in build.yml
+# whenever the builder itself changes.
 name: check
 
 on:
@@ -9,6 +15,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: rustup update stable && rustup default stable
-      - run: cargo test --release
-      - run: cargo run --release -- --check
+      - run: ./bin/canon-builder --check

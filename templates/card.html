@@ -1,0 +1,9 @@
+<article class="card" id="{{ card_prefix }}{{ card.id }}" data-cat="{{ card.category }}">
+<h4>{{ card.name }}</h4>
+<div class="origin">{{ card.origin }}</div>
+<p class="def">{{ card.definition }}</p>
+{% if !card.use_when.is_empty() %}<p class="row use"><b>{{ card.use_label }} </b>{{ card.use_when }}</p>{% else %}<p class="row use empty"></p>{% endif %}
+{% if !card.watch_out.is_empty() %}<p class="row watch"><b>{{ card.watch_label }} </b>{{ card.watch_out }}</p>{% else %}<p class="row watch empty"></p>{% endif %}
+{% if !card.links.is_empty() %}<div class="links">{% for lk in card.links %}<a href="{{ lk.url }}" target="_blank" rel="noopener" aria-label="{{ lk.label }} · {{ card.name }} (opens in new tab)">{{ lk.label }}</a>{% endfor %}</div>{% else %}<div class="links empty"></div>{% endif %}
+{% if !card.groups.is_empty() %}<div class="lineage">{% for grp in card.groups %}<span class="grp"><b>{{ grp.label }} </b>{% for r in grp.refs %}{% if !loop.first %}, {% endif %}<a class="xref{% if grp.challenges %} x{% endif %}" href="#{{ card_prefix }}{{ r.id }}" data-id="{{ r.id }}">{{ r.name }}</a>{% endfor %}  </span>{% endfor %}</div>{% else %}<div class="lineage empty"></div>{% endif %}
+</article>

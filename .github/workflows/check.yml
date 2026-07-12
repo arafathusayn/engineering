@@ -1,0 +1,25 @@
+
+# Fast drift gate: the committed index.html must be exactly what the shipped
+# builder produces from canon.toon. Runs bin/canon-builder (static musl,
+# templates compiled in) so no toolchain or compilation is needed. The binary
+# self-verifies freshness on startup — it embeds a hash of the sources it was
+# compiled from and refuses to run if the checkout's sources hash differently
+# — so a stale binary fails this gate on every push, not just when someone
+# remembers to run the source lane. Builder-changing pushes and PRs
+# additionally run the full source build in build.yml.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./bin/canon-builder --check

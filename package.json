@@ -1,0 +1,18 @@
+{
+  "name": "engineering-canon-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Playwright end-to-end tests for templates/app.js (100% coverage enforced), run with Bun",
+  "scripts": {
+    "e2e": "playwright test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.61.1",
+    "@types/istanbul-lib-coverage": "^2.0.6",
+    "@types/node": "^24.0.0",
+    "istanbul-lib-coverage": "^3.2.2",
+    "typescript": "^5.9.3",
+    "v8-to-istanbul": "^9.3.0"
+  }
+}

@@ -1,0 +1,47 @@
+
+# Full source lane: compiles the builder and runs the test suite. Triggered
+# automatically only when builder-affecting files change (content-only edits
+# to canon.toon never wait on a Rust compile), plus on demand from the
+# Actions tab. The last step re-runs the SHIPPED binary, whose startup
+# source-hash self-check fails if the PR changed builder sources without
+# re-shipping bin/canon-builder (see README "Shipped binary").
+name: build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "templates/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "bin/**"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "templates/**"
+      - "build.rs"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "bin/**"
+      - ".github/workflows/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release
+      - run: cargo run --release -- --check
+      - name: shipped binary is fresh and agrees
+        run: ./bin/canon-builder --check

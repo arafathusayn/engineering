@@ -1,0 +1,50 @@
+
+# Browser end-to-end tests for templates/app.js against the built page,
+# with 100% line/branch/function coverage of app.js enforced. Runs when the
+# page's behavior or content changes; content edits are covered because the
+# suite exercises the real committed index.html.
+name: e2e
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "canon.toon"
+      - "templates/**"
+      - "e2e/**"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.mjs"
+      - ".github/workflows/e2e.yml"
+  pull_request:
+    paths:
+      - "index.html"
+      - "canon.toon"
+      - "templates/**"
+      - "e2e/**"
+      - "package.json"
+      - "package-lock.json"
+      - "playwright.config.mjs"
+      - ".github/workflows/e2e.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e

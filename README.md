@@ -22,6 +22,7 @@ serve it directly from the repository root.
 | `templates/card.html`, `templates/crow.html` | One card / one chrono row, included per item. |
 | `templates/app.js` | The page's only JavaScript: progressive enhancement (search, filters, chrono lineage curves, theme) over the already-rendered DOM. Injected verbatim — never template-processed. |
 | `tests/build.rs` | End-to-end build of the real data: determinism, structure, anchors, the JSON blob. |
+| `e2e/` | Playwright browser tests for `templates/app.js` against the built page, with **100% line/branch/function coverage enforced** (the fixture server swaps the minified inline script for the pristine `app.js` so V8 coverage maps 1:1). |
 | `index.html` | **Build artifact.** Never edit by hand; regenerate with `cargo run --release`. |
 | `bin/canon-builder` | Prebuilt static Linux (musl) builder, so CI and content edits need no Rust toolchain. |
 | `legacy/index.html` | The retired hand-maintained page (inline JS renderer), kept for reference. |
@@ -35,6 +36,9 @@ cargo run --release            # canon.toon + templates/ -> minified index.html
 cargo run --release -- --check # verify index.html matches the build output
 cargo test                     # unit + integration tests (slug/collation parity,
                                # graph derivation, determinism, page structure)
+npm install && npm run e2e     # browser tests for app.js (Node ≥ 20; enforces
+                               # 100% coverage; CHROMIUM_PATH=... to reuse a
+                               # pre-installed Chromium)
 ```
 
 No Rust toolchain? The shipped static binary does the same job for content

@@ -47,11 +47,19 @@ fn page_contains_the_expected_structure() {
         assert!(html.contains(anchor), "missing anchor {anchor}");
     }
 
-    // app.js reads the anchor namespace from the page; the attribute must
-    // carry the same prefix the anchors were generated with.
-    assert!(
-        html.contains(r#"data-card-prefix=card-"#) || html.contains(r#"data-card-prefix="card-""#)
-    );
+    // app.js reads the anchor namespace from data-card-prefix; confirm its
+    // value is the "card-" prefix the anchors above were generated with,
+    // without assuming the minifier quotes the attribute (it currently emits
+    // it unquoted).
+    let after = html
+        .split_once("data-card-prefix=")
+        .expect("data-card-prefix present")
+        .1;
+    let prefix = match after.strip_prefix('"') {
+        Some(quoted) => &quoted[..quoted.find('"').expect("closing quote")],
+        None => &after[..after.find([' ', '>', '/']).expect("attribute terminator")],
+    };
+    assert_eq!(prefix, "card-", "data-card-prefix must match the card- anchor namespace");
 
     // The PARSE GUIDE and the machine-readable lineage blob survive minification.
     assert!(

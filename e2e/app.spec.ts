@@ -221,17 +221,21 @@ test.describe("view toggle and chrono", () => {
     // a node with both parents and children
     const richId = EDGES.find((e) => EDGES.some((f) => f[0] === e[1]))![1];
     const row = page.locator(`.crow[data-id="${richId}"]`);
+    const selBtn = page.locator(`.crow-sel[data-id="${richId}"]`);
     await row.click();
     await expect(row).toHaveClass(/sel/);
+    await expect(selBtn).toHaveAttribute("aria-pressed", "true");
     await expect(page.locator(".chrono.dimmed")).toHaveCount(1);
     expect(await page.locator(".crow.lit").count()).toBeGreaterThan(2);
     expect(await page.locator("path.ce.lit").count()).toBeGreaterThan(0);
     await row.click(); // toggle off
     await expect(page.locator(".chrono.dimmed")).toHaveCount(0);
-    // keyboard activation
-    await row.press("Enter");
+    await expect(selBtn).toHaveAttribute("aria-pressed", "false");
+    // keyboard activation: the row's selection control is a real button, so
+    // Enter/Space fire its click natively (no bespoke keydown handler)
+    await selBtn.press("Enter");
     await expect(row).toHaveClass(/sel/);
-    await row.press(" ");
+    await selBtn.press(" ");
     await expect(row).not.toHaveClass(/sel/);
     // an undated, unconnected row lights only itself
     expect(ISOLATED_ID, "the canon has an unconnected card").toBeTruthy();
@@ -240,9 +244,9 @@ test.describe("view toggle and chrono", () => {
     expect(await page.locator(".crow.lit").count()).toBe(1);
     await page.keyboard.press("Escape");
     await expect(page.locator(".chrono.dimmed")).toHaveCount(0);
-    // Enter on a non-row target inside #main is left alone
+    // the "card ↗" link is a separate control: activating it navigates
     await page.locator(".crow a.go").first().press("Enter");
-    await expect(page.locator("#listView")).toBeVisible(); // the link navigated to list view
+    await expect(page.locator("#listView")).toBeVisible(); // navigated to list view
   });
 
   test("dense synthetic graph exercises deep lane assignment", async ({ page, server }) => {

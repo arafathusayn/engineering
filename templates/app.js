@@ -223,8 +223,9 @@ function applySel(container) {
   ROWS.forEach(r => {
     const on = res && res.lit.has(r.dataset.id);
     r.classList.toggle("lit", !!on);
-    r.classList.toggle("sel", selId === r.dataset.id);
-    r.setAttribute("aria-pressed", String(selId === r.dataset.id));
+    const selected = selId === r.dataset.id;
+    r.classList.toggle("sel", selected);
+    r.querySelector(".crow-sel").setAttribute("aria-pressed", String(selected));
   });
   container.querySelectorAll("path.ce").forEach(p => {
     p.classList.toggle("lit", !!(res && res.litE.has(+p.dataset.i)));
@@ -351,14 +352,10 @@ function gotoCard(id) {
 mainEl.addEventListener("click", (e) => {
   const a = e.target.closest("a.xref, a.go");
   if (a && a.dataset.id) { e.preventDefault(); gotoCard(a.dataset.id); return; }
+  // The whole row is a click target; the .crow-sel button inside it owns
+  // keyboard/AT and fires this same click natively on Enter/Space.
   const r = e.target.closest(".crow");
   if (r) toggleSel(r.dataset.id);
-});
-mainEl.addEventListener("keydown", (e) => {
-  if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("crow")) {
-    e.preventDefault();
-    toggleSel(e.target.dataset.id);
-  }
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && selId) {

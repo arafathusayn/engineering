@@ -1,0 +1,847 @@
+<!-- PARSE GUIDE: All structured content lives in the single inline <script> at the end of <body>.
+DATA = JS array of card objects: {n:name, c:category, s:subgroup, o:origin, d:definition, u:use-when, w:watch-out, ul/wl:optional label overrides ("Spot it"/"Escape", "Takeaway"/"Nuance"), l:[[sourceLabel, url], ...]}.
+LINEAGE = {cardName: {y:year, p:[predecessorNames]}}; a "!" prefix on a predecessor means "challenges" (else "builds on"); edges always point earlier to later, so the graph is a DAG; names absent from LINEAGE are undated folklore.
+CATS = ordered category list; INTROS = {category: intro}. Card ids are slugified names; anchors are "card-" + slug.
+To extract: parse the DATA and LINEAGE object literals (regex or JS eval); at runtime window.__canon = {edges:[[srcId,tgtId],...], misses:[]} exposes the resolved graph. -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta id="metaTheme" name="theme-color" content="#f5f5f7">
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="%230066cc"/><text x="16" y="22.5" font-family="-apple-system,Helvetica,Arial,sans-serif" font-size="18" font-weight="700" fill="white" text-anchor="middle">A</text></svg>'>
+<title>Arafat's Engineering Canon: Principles, Practices &amp; Patterns</title>
+<style>
+  :root {
+    font: 100%/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    color-scheme: light dark;
+    --bg: #f5f5f7;
+    --surface: #ffffff;
+    --surface-2: rgba(0,0,0,0.04);
+    --text: #1d1d1f;
+    --text-2: #55555b;
+    --text-3: #65656a;
+    --hairline: rgba(0,0,0,0.10);
+    --hairline-soft: rgba(0,0,0,0.06);
+    --accent: #0066cc;
+    --accent-tint: rgba(0,102,204,0.10);
+    --chrome: rgba(245,245,247,0.72);
+    --chrome-border: rgba(0,0,0,0.08);
+    --shadow: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-hover: 0 4px 16px rgba(0,0,0,0.08);
+    --good: #1b7c33;
+    --warn: #a34a00;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #000000;
+      --surface: #1c1c1e;
+      --surface-2: rgba(255,255,255,0.08);
+      --text: #f5f5f7;
+      --text-2: #a1a1a6;
+      --text-3: #98989d;
+      --hairline: rgba(255,255,255,0.14);
+      --hairline-soft: rgba(255,255,255,0.08);
+      --accent: #2997ff;
+      --accent-tint: rgba(41,151,255,0.16);
+      --chrome: rgba(22,22,23,0.72);
+      --chrome-border: rgba(255,255,255,0.10);
+      --shadow: 0 1px 2px rgba(0,0,0,0.4);
+      --shadow-hover: 0 6px 20px rgba(0,0,0,0.5);
+      --good: #30d158;
+      --warn: #ff9f0a;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #000000;
+    --surface: #1c1c1e;
+    --surface-2: rgba(255,255,255,0.08);
+    --text: #f5f5f7;
+    --text-2: #a1a1a6;
+    --text-3: #98989d;
+    --hairline: rgba(255,255,255,0.14);
+    --hairline-soft: rgba(255,255,255,0.08);
+    --accent: #2997ff;
+    --accent-tint: rgba(41,151,255,0.16);
+    --chrome: rgba(22,22,23,0.72);
+    --chrome-border: rgba(255,255,255,0.10);
+    --shadow: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-hover: 0 6px 20px rgba(0,0,0,0.5);
+    --good: #30d158;
+    --warn: #ff9f0a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  .hero h1, .section > h2, .card h4 { text-wrap: balance; }
+  .lede, .intro, .cintro, .card .def, .card .row, .hero .fine { text-wrap: pretty; }
+  /* Overscroll: vertical bounce is disabled where supported (overscroll-behavior-y).
+     The themed html background + color-scheme stay as the fallback, so any engine
+     that still rubber-bands reveals theme color, never white. */
+  html, body { overscroll-behavior-y: none; }
+  html { scroll-behavior: smooth; background: var(--bg); }
+  body { background: var(--bg); color: var(--text); letter-spacing: 0; }
+  .skip {
+    position: absolute; left: 1rem; top: -4rem; z-index: 100;
+    background: var(--surface); color: var(--accent); font-size: 0.875rem; font-weight: 600;
+    padding: 0.625rem 1rem; border-radius: 0.625rem; box-shadow: var(--shadow-hover);
+    text-decoration: none; transition: top 150ms ease;
+  }
+  .skip:focus { top: 0.75rem; }
+
+  /* ---------- translucent chrome ---------- */
+  .toolbar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--chrome);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--chrome-border);
+  }
+  .toolbar-inner {
+    max-width: 1200px; margin: 0 auto; padding: 0.75rem 1.5rem;
+    display: flex; flex-wrap: wrap; gap: 0.625rem; align-items: center;
+  }
+  .brand { font-size: 1.0625rem; font-weight: 700; letter-spacing: -0.014em; margin-right: auto; white-space: nowrap; }
+  .brand .tint { color: var(--accent); }
+
+  .search-wrap { position: relative; flex: 1 1 12rem; max-width: 420px; }
+  .search-wrap svg { position: absolute; left: 0.625rem; top: 50%; transform: translateY(-50%); width: 0.875rem; height: 0.875rem; color: var(--text-3); pointer-events: none; }
+  input[type="search"] {
+    width: 100%; font: inherit; font-size: 0.9375rem; color: var(--text);
+    background: var(--surface-2); border: 1px solid transparent; border-radius: 0.625rem;
+    padding: 0.4375rem 2.25rem 0.4375rem 2rem; outline: none; appearance: none; -webkit-appearance: none;
+    transition: border-color 150ms ease, background 150ms ease;
+  }
+  input[type="search"]::placeholder { color: var(--text-3); }
+  input[type="search"]:focus { border-color: var(--accent); background: var(--surface); }
+  .kbd {
+    position: absolute; right: 0.5rem; top: 50%; transform: translateY(-50%);
+    font-size: 0.6875rem; color: var(--text-3); border: 1px solid var(--hairline); border-radius: 0.3125rem;
+    padding: 0 0.375rem; line-height: 1.4; background: var(--surface);
+  }
+
+  .chips { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 0.75rem; display: flex; gap: 0.375rem; overflow-x: auto; scrollbar-width: none; }
+  .chips::-webkit-scrollbar { display: none; }
+  .chip {
+    font: inherit; font-size: 0.8125rem; font-weight: 500; letter-spacing: 0;
+    color: var(--text); background: var(--surface-2); border: 1px solid transparent;
+    border-radius: 62.5rem; padding: 0.4375rem 0.875rem; min-height: 2.125rem; cursor: pointer; white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .chip:active { transform: scale(0.96); }
+  .chip[aria-pressed="true"] { background: var(--text); color: var(--bg); }
+  .chip .n { color: var(--text-2); font-variant-numeric: tabular-nums; margin-left: 0.25rem; }
+  .chip[aria-pressed="true"] .n { color: inherit; opacity: 0.75; }
+  .chip:focus-visible, input:focus-visible, a:focus-visible, .skip:focus-visible, .icon-btn:focus-visible, .menu button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- appearance icon + menu ---------- */
+  .appearance { position: relative; }
+  .icon-btn {
+    width: 2.25rem; height: 2.25rem; display: grid; place-items: center;
+    background: var(--surface-2); color: var(--text); border: 0; border-radius: 62.5rem;
+    cursor: pointer; transition: background 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .icon-btn:active { transform: scale(0.96); }
+  .icon-btn .ic { width: 1rem; height: 1rem; display: none; }
+  .icon-btn[data-icon="auto"] .ic-auto { display: block; }
+  .icon-btn[data-icon="light"] .ic-light { display: block; }
+  .icon-btn[data-icon="dark"] .ic-dark { display: block; }
+
+  .menu {
+    position: absolute; right: 0; top: calc(100% + 0.5rem); z-index: 60; min-width: 8.5rem;
+    background: var(--chrome);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid var(--chrome-border); border-radius: 0.875rem;
+    box-shadow: var(--shadow-hover); padding: 0.25rem;
+    transform-origin: top right;
+  }
+  .menu[hidden] { display: none; }
+  .menu.open { animation: menuIn 180ms cubic-bezier(0.32, 0.72, 0, 1); }
+  @keyframes menuFade { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes menuIn {
+    from { opacity: 0; transform: scale(0.96) translateY(-0.25rem); }
+    to   { opacity: 1; transform: none; }
+  }
+  .menu button {
+    display: flex; align-items: center; gap: 0.5rem; width: 100%;
+    font: inherit; font-size: 0.875rem; color: var(--text); text-align: left;
+    background: transparent; border: 0; border-radius: 0.625rem;
+    padding: 0.4375rem 0.625rem; min-height: 2.125rem; cursor: pointer;
+  }
+  .menu button:focus-visible { background: var(--surface-2); }
+  .menu .check { width: 0.875rem; height: 0.875rem; visibility: hidden; color: var(--accent); }
+  .menu button[aria-checked="true"] .check { visibility: visible; }
+  .menu button[aria-checked="true"] { font-weight: 600; }
+
+  /* ---------- hero ---------- */
+  .hero { max-width: 1200px; margin: 0 auto; padding: 4.5rem 1.5rem 2.5rem; text-align: center; }
+  .hero h1 {
+    font-size: clamp(2rem, 5vw, 3.75rem);
+    line-height: 1.05; letter-spacing: -0.02em; font-weight: 700;
+  }
+  .hero h1 em { font-style: normal; color: var(--text-3); }
+  .hero .lede { margin: 1rem auto 0; font-size: 1.125rem; line-height: 1.5; color: var(--text-2); max-width: 44rem; letter-spacing: -0.005em; }
+  .hero .fine { margin: 1rem auto 0; font-size: 0.8125rem; line-height: 1.55; color: var(--text-3); max-width: 44rem; }
+  .hero .fine b { font-weight: 600; color: var(--text-2); }
+
+  /* ---------- sections ---------- */
+  main { max-width: 1200px; margin: 0 auto; padding: 0 1.5rem 5rem; }
+  .section { padding-top: 2.75rem; }
+  .section > h2 { font-size: 1.75rem; letter-spacing: -0.017em; line-height: 1.15; font-weight: 700; }
+  .section > .intro { margin-top: 0.5rem; margin-bottom: 1.25rem; font-size: 0.9375rem; color: var(--text-2); max-width: 46rem; }
+  .subhead { margin: 1.5rem 0 0.75rem; font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-3); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(21rem, 100%), 1fr)); gap: 0.875rem; }
+  @media (max-width: 480px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--hairline-soft); border-radius: 1.125rem;
+    padding: 1.125rem 1.25rem 1rem; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 0.5rem;
+    transition: box-shadow 150ms ease, border-color 150ms ease;
+  }
+  .card h4 { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.012em; line-height: 1.25; }
+  .card .origin { font-size: 0.75rem; font-weight: 500; color: var(--text-3); letter-spacing: 0.005em; }
+  .card .def { font-size: 0.875rem; line-height: 1.5; color: var(--text); }
+  .card .row { font-size: 0.8125rem; line-height: 1.5; color: var(--text-2); }
+  .card .row b { font-weight: 600; letter-spacing: 0.01em; }
+  .card .row.use b { color: var(--good); }
+  .card .row.watch b { color: var(--warn); }
+  .card .links { margin-top: auto; padding-top: 0.625rem; border-top: 1px solid var(--hairline-soft); display: flex; flex-wrap: wrap; gap: 0.25rem 0.75rem; }
+  .card .empty { padding: 0 !important; margin: 0 !important; border: 0 !important; }
+  @supports (grid-template-rows: subgrid) {
+    .grid > .card { display: grid; grid-template-rows: subgrid; grid-row: span 7; row-gap: 0.5rem; }
+  }
+  .card .links a { font-size: 0.75rem; font-weight: 500; color: var(--accent); text-decoration: none; }
+  .card .links a:hover { text-decoration: underline; }
+
+  .empty { display: none; padding: 4rem 0; text-align: center; color: var(--text-3); font-size: 0.9375rem; }
+  .count-line { padding-top: 1.25rem; font-size: 0.8125rem; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+  footer { border-top: 1px solid var(--hairline-soft); }
+  .foot-inner { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 3.5rem; font-size: 0.8125rem; line-height: 1.6; color: var(--text-3); max-width: 46rem; }
+  .foot-inner a { color: var(--accent); text-decoration: none; }
+  .foot-inner a:hover { text-decoration: underline; }
+  .foot-inner p + p { margin-top: 0.625rem; }
+
+  /* ---------- view toggle ---------- */
+  .seg { display: flex; gap: 0.125rem; background: var(--surface-2); border-radius: 62.5rem; padding: 0.1875rem; }
+  .seg button {
+    font: inherit; font-size: 0.8125rem; font-weight: 500; color: var(--text-2);
+    background: transparent; border: 0; border-radius: 62.5rem;
+    padding: 0.3125rem 0.6875rem; min-height: 1.75rem; cursor: pointer;
+    transition: background 150ms ease, color 150ms ease, transform 160ms cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .seg button:active { transform: scale(0.97); }
+  .seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--shadow); }
+  .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- lineage rows on cards ---------- */
+  .card { scroll-margin-top: 8.5rem; }
+  .lineage { padding-top: 0.125rem; font-size: 0.75rem; line-height: 1.7; color: var(--text-3); }
+  .lineage .grp { display: block; }
+  .lineage b { font-weight: 600; letter-spacing: 0.01em; }
+  .lineage a.xref { color: var(--accent); text-decoration: none; font-weight: 500; }
+  .lineage a.xref:hover { text-decoration: underline; }
+  .lineage a.xref.x { text-decoration: underline dashed; text-underline-offset: 2px; }
+  .lineage a.xref.x:hover { text-decoration: underline; }
+  .card.pulse { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---------- chrono view ---------- */
+  .cintro { margin: 1.5rem auto 0.5rem; font-size: 0.9375rem; color: var(--text-2); max-width: 38rem; text-align: center; }
+  .chrono { position: relative; padding: 0.5rem 0 3rem; max-width: 66rem; }
+  .cedges { position: absolute; top: 0; left: 0; pointer-events: none; }
+  .cedges path.ce { fill: none; stroke: var(--text-3); stroke-width: 1.25; opacity: 0.35; }
+  .cedges path.ce.x { stroke-dasharray: 4 4; }
+  .chrono.dimmed path.ce { opacity: 0.08; }
+  .cedges path.ce.lit { stroke: var(--accent); opacity: 1; stroke-width: 2; }
+  .cdecade { margin: 2.25rem 0 0.5rem 11.5rem; font-size: 0.8125rem; font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text-3); }
+  .crow {
+    display: flex; align-items: center; gap: 0.625rem;
+    margin-left: 10.5rem; padding: 0.3125rem 0.625rem 0.3125rem 0;
+    min-height: 2.125rem; border-radius: 0.625rem; cursor: pointer;
+  }
+  .crow:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .crow .yr { width: 3rem; text-align: right; font-size: 0.75rem; color: var(--text-3); font-variant-numeric: tabular-nums; flex: none; }
+  .crow .dot { width: 0.5625rem; height: 0.5625rem; border-radius: 50%; background: var(--text-3); flex: none; }
+  .crow .nm { font-size: 0.875rem; font-weight: 500; letter-spacing: -0.005em; flex: 0 1 auto; min-width: 0; }
+  .crow .ct { font-size: 0.6875rem; color: var(--text-3); white-space: nowrap; margin-right: auto; }
+  .crow .go { flex: none; margin-left: auto; font-size: 0.75rem; font-weight: 500; color: var(--accent); text-decoration: none; opacity: 0; white-space: nowrap; }
+  .crow:focus-within .go { opacity: 1; }
+  .chrono.dimmed .crow { opacity: 0.35; }
+  .chrono.dimmed .crow.lit, .chrono.dimmed .crow.sel { opacity: 1; }
+  .crow.lit .dot, .crow.sel .dot { background: var(--accent); }
+  .crow.sel { background: var(--accent-tint); }
+  @media (hover: none) {
+    .kbd { display: none; }
+    input[type="search"] { padding-right: 0.75rem; }
+    .crow .go { opacity: 1; }
+    .card:hover { transform: none; box-shadow: var(--shadow); }
+  }
+  @media (max-width: 400px) {
+    body { overflow-x: clip; }
+  }
+  @media (max-width: 700px) {
+    .toolbar-inner { padding: 0.5rem 1rem; }
+    .brand { font-size: 0.9375rem; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; order: 0; }
+    .brand .count { display: none; }
+    .appearance { order: 1; }
+    .search-wrap { order: 2; flex: 1 1 10rem; max-width: none; }
+    #viewSeg { order: 3; }
+    .seg button { padding: 0.25rem 0.5625rem; }
+    .chips { padding: 0 1rem 0.625rem; -webkit-mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent); mask-image: linear-gradient(to right, black calc(100% - 2rem), transparent); }
+    .chip { padding: 0.375rem 0.75rem; min-height: 2rem; }
+    .hero { padding-top: 3rem; }
+  }
+  @media (max-width: 480px) {
+    .card { padding: 1rem 1rem 0.875rem; }
+    .grid { gap: 0.75rem; }
+  }
+  @media (max-width: 640px) {
+    .crow { margin-left: 6.5rem; }
+    .cdecade { margin-left: 7.5rem; }
+    .crow { gap: 0.5rem; }
+    .crow .yr { width: 2.5rem; }
+    .crow .ct { display: none; }
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .card:hover { box-shadow: var(--shadow-hover); }
+    .chip:not([aria-pressed="true"]):hover { background: var(--hairline); }
+    .chip[aria-pressed="true"]:hover { opacity: 0.85; }
+    .icon-btn:hover { background: var(--hairline); }
+    .menu button:hover { background: var(--surface-2); }
+    .crow:hover { background: var(--surface-2); }
+    .crow:hover .go { opacity: 1; }
+  }
+
+  /* ---------- accessibility & preferences ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .card, .chip, .icon-btn { transition: none !important; }
+    .card:hover { transform: none; }
+    .menu.open { animation: menuFade 150ms ease; }
+    .crow, .seg button { transition: none !important; }
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .toolbar, .menu { background: var(--bg); -webkit-backdrop-filter: none; backdrop-filter: none; }
+  }
+  @media (prefers-contrast: more) {
+    .card, .chip, .icon-btn, .menu { border: 1px solid var(--text-3); }
+    .toolbar { border-bottom-color: var(--text-3); }
+    .brand .tint { color: var(--text); }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="toolbar">
+  <div class="toolbar-inner">
+    <div class="brand">Arafat’s <span class="tint">Engineering Canon</span></div>
+    <div class="search-wrap">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><circle cx="7" cy="7" r="5.25" stroke="currentColor" stroke-width="1.5"/><path d="M11 11L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+      <input id="q" type="search" placeholder="Search principles, patterns, laws…" aria-label="Search the canon">
+      <span class="kbd" aria-hidden="true">/</span>
+    </div>
+    <div class="seg" role="group" aria-label="View" id="viewSeg">
+      <button type="button" data-v="list" aria-pressed="true">List</button>
+      <button type="button" data-v="chrono" aria-pressed="false">Chrono</button>
+    </div>
+    <div class="appearance" id="appearance">
+      <button id="themeBtn" class="icon-btn" type="button" data-icon="auto"
+              aria-haspopup="true" aria-expanded="false" aria-label="Appearance: Auto">
+        <svg class="ic ic-auto" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="6.25" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 1.75 A6.25 6.25 0 0 0 8 14.25 Z" fill="currentColor"/>
+        </svg>
+        <svg class="ic ic-light" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.5"/>
+          <path d="M8 0.75v1.75M8 13.5v1.75M0.75 8h1.75M13.5 8h1.75M2.87 2.87l1.24 1.24M11.89 11.89l1.24 1.24M13.13 2.87l-1.24 1.24M4.11 11.89l-1.24 1.24" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <svg class="ic ic-dark" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <path d="M13.25 9.4A5.75 5.75 0 1 1 6.6 2.75a4.6 4.6 0 0 0 6.65 6.65Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+        </svg>
+      </button>
+      <div id="themeMenu" class="menu" role="menu" aria-label="Appearance" hidden>
+        <button type="button" role="menuitemradio" aria-checked="true" data-t="auto">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Auto</button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-t="light">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Light</button>
+        <button type="button" role="menuitemradio" aria-checked="false" data-t="dark">
+          <svg class="check" viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3.5 8.5l3 3 6-6.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Dark</button>
+      </div>
+    </div>
+  </div>
+  <nav class="chips" id="chips" aria-label="Filter by category"></nav>
+</header>
+
+<section class="hero">
+  <h1>Every principle, practice &amp; pattern.<br><em>And when to reach for each.</em></h1>
+  <p class="lede">A curated field guide to software engineering’s named knowledge: foundational principles, laws and maxims, pragmatic tactics, defensive practices, design patterns classic and modern, architecture, delivery discipline, and the anti-patterns and rethinks that keep the canon honest. It spans Turing’s 1936 limit to the AI-era evidence of 2026, and lineage links weave every entry into one chronological graph.</p>
+  <p class="fine"><b>How to read this page.</b> Definitions and origins follow the linked sources, retrieved and verified 11 July 2026. The <b>Use when</b> / <b>Watch out</b> lines are editorial synthesis: judgment, not citation. Lineage links between cards are synthesis too, except where the later work cites the earlier one. Press <b>/</b> to search, filter with the category pills, and flip the List·Chrono toggle for the time-ordered graph view. No finite catalog is complete; this one aims to cover what practitioners actually name and reach for.</p>
+  <p class="count-line" id="countLine" aria-live="polite"></p>
+</section>
+
+<main id="main"></main>
+<p class="empty" id="empty" role="status">No matches. Try fewer words, or clear the category filter.</p>
+
+<footer>
+  <div class="foot-inner">
+    <p><b>Provenance.</b> Every card links its source; links were retrieved and checked on 11 July 2026. Quoted definitions belong to their authors. Guidance lines are synthesis and are labeled as such; treat them as a starting point for judgment, not a substitute for it.</p>
+    <p>© 2026 Arafat Husayn. All rights reserved.</p>
+  </div>
+</footer>
+
+<script>
+"use strict";
+
+const CATS = "__CANON_CATS__";
+
+const INTROS = "__CANON_INTROS__";
+
+/* Each entry: n name · c category · s subgroup · o origin · d definition ·
+   u "use when" (synthesis) · w "watch out" (synthesis) · l [[label,url],…] */
+const DATA = "__CANON_DATA__";
+
+/* ---------- lineage DAG: year + predecessors ("!" prefix = challenges) ---------- */
+const LINEAGE = "__CANON_LINEAGE__";
+
+function slugify(n) {
+  return n.toLowerCase().replace(/[’'“”"().,:&!?·\/]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+const __misses = [];
+for (const it of DATA) {
+  const m = LINEAGE[it.n];
+  if (m) { it.y = m.y; it.p = m.p || []; } else { it.p = []; }
+  it.id = slugify(it.n);
+}
+for (const k of Object.keys(LINEAGE)) {
+  if (!DATA.some(it => it.n === k)) __misses.push("key:" + k);
+}
+const BYNAME = new Map(DATA.map(it => [it.n, it]));
+const BYID = new Map(DATA.map(it => [it.id, it]));
+const EDGES = [];
+for (const it of DATA) {
+  for (const raw of it.p) {
+    const x = raw.charAt(0) === "!";
+    const name = x ? raw.slice(1) : raw;
+    const src = BYNAME.get(name);
+    if (!src) { __misses.push(it.n + " -> " + name); continue; }
+    EDGES.push({ s: src, t: it, x });
+  }
+}
+const INS = new Map(), OUTS = new Map();
+EDGES.forEach((e, i) => {
+  if (!INS.has(e.t.id)) INS.set(e.t.id, []);
+  INS.get(e.t.id).push(i);
+  if (!OUTS.has(e.s.id)) OUTS.set(e.s.id, []);
+  OUTS.get(e.s.id).push(i);
+});
+function chain(id) {
+  const lit = new Set([id]), litE = new Set();
+  const up = [id];
+  while (up.length) {
+    const n = up.pop();
+    for (const i of (INS.get(n) || [])) {
+      if (!litE.has(i)) { litE.add(i); const s = EDGES[i].s.id; if (!lit.has(s)) { lit.add(s); up.push(s); } }
+    }
+  }
+  const dn = [id];
+  while (dn.length) {
+    const n = dn.pop();
+    for (const i of (OUTS.get(n) || [])) {
+      if (!litE.has(i)) { litE.add(i); const t = EDGES[i].t.id; if (!lit.has(t)) { lit.add(t); dn.push(t); } }
+    }
+  }
+  return { lit, litE };
+}
+window.__canon = { edges: EDGES.map(e => [e.s.id, e.t.id]), misses: __misses };
+
+/* ---------- rendering ---------- */
+const mainEl = document.getElementById("main");
+const emptyEl = document.getElementById("empty");
+const chipsEl = document.getElementById("chips");
+const qEl = document.getElementById("q");
+const countLine = document.getElementById("countLine");
+
+let activeCat = "All";
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text) e.textContent = text;
+  return e;
+}
+
+function buildCard(item) {
+  const card = el("article", "card");
+  card.id = "card-" + item.id;
+  card.appendChild(el("h4", null, item.n));
+  card.appendChild(el("div", "origin", item.o || ""));
+  card.appendChild(el("p", "def", item.d || ""));
+  if (item.u) {
+    const r = el("p", "row use");
+    const b = el("b", null, (item.ul || "Use when") + " ");
+    r.appendChild(b); r.appendChild(document.createTextNode(item.u));
+    card.appendChild(r);
+  } else card.appendChild(el("p", "row use empty"));
+  if (item.w) {
+    const r = el("p", "row watch");
+    const b = el("b", null, (item.wl || "Watch out") + " ");
+    r.appendChild(b); r.appendChild(document.createTextNode(item.w));
+    card.appendChild(r);
+  } else card.appendChild(el("p", "row watch empty"));
+  {
+    const links = el("div", "links" + (item.l && item.l.length ? "" : " empty"));
+    for (const [label, url] of (item.l || [])) {
+      const a = el("a", null, label);
+      a.href = url; a.target = "_blank"; a.rel = "noopener";
+      a.setAttribute("aria-label", label + " · " + item.n + " (opens in new tab)");
+      links.appendChild(a);
+    }
+    card.appendChild(links);
+  }
+  const groups = [];
+  const preds = item.p.map(raw => ({ x: raw.charAt(0) === "!", it: BYNAME.get(raw.replace(/^!/, "")) })).filter(o => o.it);
+  const succs = (OUTS.get(item.id) || []).map(i => EDGES[i]);
+  const g = (label, arr, cls) => { if (arr.length) groups.push({ label, arr, cls }); };
+  g("Builds on", preds.filter(o => !o.x).map(o => o.it), "");
+  g("Challenges", preds.filter(o => o.x).map(o => o.it), "x");
+  g("Leads to", succs.filter(e => !e.x).map(e => e.t), "");
+  g("Challenged by", succs.filter(e => e.x).map(e => e.t), "x");
+  {
+    const ln = el("div", "lineage" + (groups.length ? "" : " empty"));
+    for (const grp of groups) {
+      const seg = el("span", "grp", "");
+      seg.appendChild(el("b", null, grp.label + " "));
+      grp.arr.forEach((t, i2) => {
+        if (i2) seg.appendChild(document.createTextNode(", "));
+        const a = el("a", "xref" + (grp.cls ? " x" : ""), t.n);
+        a.href = "#card-" + t.id; a.dataset.id = t.id;
+        seg.appendChild(a);
+      });
+      seg.appendChild(document.createTextNode("  "));
+      ln.appendChild(seg);
+    }
+    card.appendChild(ln);
+  }
+  return card;
+}
+
+function render() {
+  if (VIEW.mode === "chrono") { renderChrono(); return; }
+  const q = qEl.value.trim().toLowerCase();
+  mainEl.textContent = "";
+  let shown = 0;
+
+  for (const cat of CATS) {
+    const items = DATA.filter(it => it.c === cat && (activeCat === "All" || activeCat === cat) && matches(it, q));
+    if (!items.length) continue;
+
+    const section = el("section", "section");
+    section.appendChild(el("h2", null, cat));
+    if (!q && INTROS[cat]) section.appendChild(el("p", "intro", INTROS[cat]));
+
+    let currentSub = null, grid = null;
+    for (const it of items) {
+      const sub = it.s || null;
+      if (sub !== currentSub || !grid) {
+        if (sub) section.appendChild(el("h3", "subhead", sub));
+        grid = el("div", "grid");
+        section.appendChild(grid);
+        currentSub = sub;
+      }
+      grid.appendChild(buildCard(it));
+      shown++;
+    }
+    mainEl.appendChild(section);
+  }
+
+  emptyEl.style.display = shown ? "none" : "block";
+  countLine.textContent = shown === DATA.length
+    ? DATA.length + " entries · " + CATS.length + " categories"
+    : shown + " of " + DATA.length + " entries";
+}
+
+function matches(it, q) {
+  if (!q) return true;
+  const hay = (it.n + " " + (it.o||"") + " " + (it.d||"") + " " + (it.u||"") + " " + (it.w||"") + " " + it.c + " " + (it.s||"")).toLowerCase();
+  return q.split(/\s+/).every(t => hay.includes(t));
+}
+
+function buildChips() {
+  const all = el("button", "chip", "All");
+  all.appendChild(el("span", "n", "· " + DATA.length));
+  all.setAttribute("aria-pressed", "true");
+  all.onclick = () => setCat("All", all);
+  chipsEl.appendChild(all);
+  for (const cat of CATS) {
+    const b = el("button", "chip");
+    b.textContent = cat;
+    const n = el("span", "n", String(DATA.filter(i => i.c === cat).length));
+    b.appendChild(n);
+    b.setAttribute("aria-pressed", "false");
+    b.onclick = () => setCat(cat, b);
+    chipsEl.appendChild(b);
+  }
+}
+
+function setCat(cat, btn) {
+  activeCat = cat;
+  for (const c of chipsEl.children) c.setAttribute("aria-pressed", "false");
+  btn.setAttribute("aria-pressed", "true");
+  render();
+  window.scrollTo({ top: 0, behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+}
+
+/* ---------- appearance (in-memory only; no storage APIs) ---------- */
+const themeBtn = document.getElementById("themeBtn");
+const themeMenu = document.getElementById("themeMenu");
+const themeItems = Array.from(themeMenu.querySelectorAll("button[data-t]"));
+const metaTheme = document.getElementById("metaTheme");
+const darkMQ = matchMedia("(prefers-color-scheme: dark)");
+let themeMode = "auto";
+const themeLabels = { auto: "Auto", light: "Light", dark: "Dark" };
+
+function applyTheme(mode) {
+  themeMode = mode;
+  if (mode === "auto") delete document.documentElement.dataset.theme;
+  else document.documentElement.dataset.theme = mode;
+  for (const b of themeItems) b.setAttribute("aria-checked", String(b.dataset.t === mode));
+  themeBtn.dataset.icon = mode;
+  themeBtn.setAttribute("aria-label", "Appearance: " + themeLabels[mode]);
+  const dark = mode === "dark" || (mode === "auto" && darkMQ.matches);
+  metaTheme.setAttribute("content", dark ? "#000000" : "#f5f5f7");
+}
+
+function openThemeMenu() {
+  themeMenu.hidden = false;
+  themeMenu.classList.add("open");
+  themeBtn.setAttribute("aria-expanded", "true");
+  (themeItems.find(b => b.getAttribute("aria-checked") === "true") || themeItems[0]).focus();
+}
+function closeThemeMenu(refocus) {
+  themeMenu.classList.remove("open");
+  themeMenu.hidden = true;
+  themeBtn.setAttribute("aria-expanded", "false");
+  if (refocus) themeBtn.focus();
+}
+themeBtn.addEventListener("click", () => {
+  themeMenu.hidden ? openThemeMenu() : closeThemeMenu(true);
+});
+themeBtn.addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" && themeMenu.hidden) { e.preventDefault(); openThemeMenu(); }
+});
+themeMenu.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-t]");
+  if (b) { applyTheme(b.dataset.t); closeThemeMenu(true); }
+});
+themeMenu.addEventListener("keydown", (e) => {
+  const i = themeItems.indexOf(document.activeElement);
+  if (e.key === "ArrowDown") { e.preventDefault(); themeItems[(i + 1) % themeItems.length].focus(); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); themeItems[(i - 1 + themeItems.length) % themeItems.length].focus(); }
+  else if (e.key === "Home") { e.preventDefault(); themeItems[0].focus(); }
+  else if (e.key === "End") { e.preventDefault(); themeItems[themeItems.length - 1].focus(); }
+  else if (e.key === "Escape") { closeThemeMenu(true); }
+  else if (e.key === "Tab") { closeThemeMenu(false); }
+});
+document.addEventListener("pointerdown", (e) => {
+  if (!themeMenu.hidden && !e.target.closest("#appearance")) closeThemeMenu(false);
+});
+darkMQ.addEventListener("change", () => { if (themeMode === "auto") applyTheme("auto"); });
+applyTheme("auto");
+
+qEl.addEventListener("input", render);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== qEl) { e.preventDefault(); qEl.focus(); }
+  if (e.key === "Escape" && document.activeElement === qEl) { qEl.value = ""; render(); qEl.blur(); }
+});
+
+const VIEW = { mode: "list" };
+const viewSeg = document.getElementById("viewSeg");
+let selId = null;
+
+function setView(v) {
+  VIEW.mode = v;
+  selId = null;
+  for (const b of viewSeg.querySelectorAll("button")) b.setAttribute("aria-pressed", String(b.dataset.v === v));
+  render();
+  window.scrollTo({ top: 0, behavior: "auto" });
+}
+viewSeg.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-v]");
+  if (b) setView(b.dataset.v);
+});
+
+function buildRow(it) {
+  const r = el("div", "crow");
+  r.dataset.id = it.id;
+  r.setAttribute("role", "button");
+  r.tabIndex = 0;
+  r.setAttribute("aria-pressed", "false");
+  const showYr = it.y && String(it.o || "").indexOf(String(it.y)) !== -1;
+  r.appendChild(el("span", "yr", showYr ? String(it.y) : ""));
+  const dot = el("span", "dot"); dot.setAttribute("aria-hidden", "true");
+  r.appendChild(dot);
+  r.appendChild(el("span", "nm", it.n));
+  r.appendChild(el("span", "ct", it.c));
+  const go = el("a", "go", "card ↗");
+  go.href = "#card-" + it.id; go.dataset.id = it.id;
+  go.setAttribute("aria-label", "Open " + it.n + " in list view");
+  r.appendChild(go);
+  return r;
+}
+
+function renderChrono() {
+  const q = qEl.value.trim().toLowerCase();
+  mainEl.textContent = "";
+  const items = DATA.filter(it => (activeCat === "All" || it.c === activeCat) && matches(it, q));
+  const dated = items.filter(i => i.y).sort((a, b) => a.y - b.y || a.n.localeCompare(b.n));
+  const undated = items.filter(i => !i.y).sort((a, b) => a.n.localeCompare(b.n));
+  mainEl.appendChild(el("p", "cintro", "One idea per row, placed on its decade. The curves at left are lineage: solid means builds on, dashed means challenges. Click a row to light its whole chain (Esc clears); years appear only where the cited origin states one, so decade bands carry the rest."));
+  const wrap = el("div", "chrono");
+  let dec = null;
+  for (const it of dated) {
+    const d = Math.floor(it.y / 10) * 10;
+    if (d !== dec) { dec = d; wrap.appendChild(el("h2", "cdecade", d + "s")); }
+    wrap.appendChild(buildRow(it));
+  }
+  if (undated.length) {
+    wrap.appendChild(el("h2", "cdecade", "Undated · folklore & standing practice"));
+    for (const it of undated) wrap.appendChild(buildRow(it));
+  }
+  mainEl.appendChild(wrap);
+  emptyEl.style.display = items.length ? "none" : "block";
+  requestAnimationFrame(() => {
+    const n = drawEdges(wrap);
+    countLine.textContent = items.length + " of " + DATA.length + " entries · " + n + " lineage links in view";
+  });
+}
+
+function drawEdges(container) {
+  const rows = new Map();
+  container.querySelectorAll(".crow[data-id]").forEach(r => rows.set(r.dataset.id, r));
+  let svg = container.querySelector("svg.cedges");
+  if (!svg) {
+    svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("class", "cedges");
+    container.prepend(svg);
+  }
+  svg.setAttribute("width", container.clientWidth);
+  svg.setAttribute("height", container.scrollHeight);
+  svg.textContent = "";
+  const cRect = container.getBoundingClientRect();
+  const pt = (r) => {
+    const b = r.querySelector(".dot").getBoundingClientRect();
+    return { x: b.left - cRect.left + b.width / 2, y: b.top - cRect.top + b.height / 2 };
+  };
+  const vis = [];
+  EDGES.forEach((e, i) => {
+    const s = rows.get(e.s.id), t = rows.get(e.t.id);
+    if (s && t) vis.push({ e, i, a: pt(s), b: pt(t) });
+  });
+  for (const o of vis) { o.y1 = Math.min(o.a.y, o.b.y); o.y2 = Math.max(o.a.y, o.b.y); }
+  vis.sort((p, q) => (p.y2 - p.y1) - (q.y2 - q.y1));
+  const narrow = container.clientWidth < 640;
+  const laneBase = narrow ? 12 : 18, laneGap = narrow ? 5 : 9;
+  const lanes = [];
+  for (const o of vis) {
+    let L = 0;
+    for (; L < lanes.length; L++) {
+      if (!lanes[L].some(iv => o.y1 < iv[1] && iv[0] < o.y2)) break;
+    }
+    if (L === lanes.length) lanes.push([]);
+    if (L > 12) L = 12;
+    lanes[L].push([o.y1, o.y2]);
+    o.lane = L;
+  }
+  for (const o of vis) {
+    const lx = Math.max(4, o.a.x - (laneBase + o.lane * laneGap));
+    const p = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    p.setAttribute("d", "M " + (o.a.x - 5) + " " + o.a.y + " C " + lx + " " + o.a.y + ", " + lx + " " + o.b.y + ", " + (o.b.x - 5) + " " + o.b.y);
+    p.setAttribute("class", "ce" + (o.e.x ? " x" : ""));
+    p.dataset.i = o.i;
+    svg.appendChild(p);
+  }
+  applySel(container);
+  return vis.length;
+}
+
+function applySel(container) {
+  const res = selId ? chain(selId) : null;
+  container.classList.toggle("dimmed", !!selId);
+  container.querySelectorAll(".crow").forEach(r => {
+    const on = res && res.lit.has(r.dataset.id);
+    r.classList.toggle("lit", !!on);
+    r.classList.toggle("sel", selId === r.dataset.id);
+    r.setAttribute("aria-pressed", String(selId === r.dataset.id));
+  });
+  container.querySelectorAll("path.ce").forEach(p => {
+    p.classList.toggle("lit", !!(res && res.litE.has(+p.dataset.i)));
+  });
+}
+
+function toggleSel(id) {
+  selId = (selId === id) ? null : id;
+  const c = mainEl.querySelector(".chrono");
+  if (c) applySel(c);
+}
+
+function gotoCard(id) {
+  selId = null;
+  if (VIEW.mode !== "list") setView("list");
+  const it = BYID.get(id);
+  if (!it) return;
+  if (activeCat !== "All" && it.c !== activeCat) {
+    activeCat = "All";
+    for (const c of chipsEl.children) c.setAttribute("aria-pressed", String(c === chipsEl.firstElementChild));
+  }
+  if (qEl.value) qEl.value = "";
+  render();
+  const elc = document.getElementById("card-" + id);
+  if (elc) {
+    elc.scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "center" });
+    elc.classList.add("pulse");
+    setTimeout(() => elc.classList.remove("pulse"), 1800);
+  }
+}
+
+mainEl.addEventListener("click", (e) => {
+  const a = e.target.closest("a.xref, a.go");
+  if (a && a.dataset.id) { e.preventDefault(); gotoCard(a.dataset.id); return; }
+  const r = e.target.closest(".crow");
+  if (r) toggleSel(r.dataset.id);
+});
+mainEl.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.classList && e.target.classList.contains("crow")) {
+    e.preventDefault();
+    toggleSel(e.target.dataset.id);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && selId) {
+    selId = null;
+    const c = mainEl.querySelector(".chrono");
+    if (c) applySel(c);
+  }
+});
+let __rzT;
+window.addEventListener("resize", () => {
+  if (VIEW.mode !== "chrono") return;
+  clearTimeout(__rzT);
+  __rzT = setTimeout(() => { const c = mainEl.querySelector(".chrono"); if (c) drawEdges(c); }, 150);
+});
+
+buildChips();
+render();
+</script>
+</body>
+</html>

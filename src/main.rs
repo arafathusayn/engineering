@@ -224,12 +224,12 @@ fn run() -> Result<ExitCode> {
             // directory or symlink in its place, content that no longer
             // hashes to its own filename, or (for a predecessor only —
             // `current` is written fresh below, so absence there is fine) a
-            // file that has simply gone missing. Without this,
-            // existing_app_scripts's cleanup pass only ever sees regular
-            // files, so a bogus, corrupted, or vanished retained entry
-            // would be left untouched, written into the manifest as if
-            // valid, and only surface as a failure on the next `--check` —
-            // fail here, before any output is written, instead.
+            // file that has simply gone missing. Without this, the cleanup
+            // pass below has no way to catch it: it only ever deletes
+            // *unlisted* entries, so anything still named in the manifest —
+            // valid or not — is preserved by design, written back out as if
+            // fine, and would only surface as a failure on the next
+            // `--check` — fail here, before any output is written, instead.
             for name in &manifest {
                 if name == current {
                     ensure_sidecar_path_is_writable(&root.join(name))?;

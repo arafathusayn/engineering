@@ -11,6 +11,7 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -277,14 +278,20 @@ fn run() -> Result<ExitCode> {
     }
 }
 
-/// Every `app.*.js` sidecar currently sitting in the checkout root.
+/// Every `app.*.js`-shaped entry currently sitting in the checkout root:
+/// regular files and symlinks alike, but never a directory (`remove_file`
+/// can't remove one and would fail confusingly). A symlink is included
+/// deliberately: `remove_file` unlinks the directory entry itself and never
+/// follows it, so removing a stray one here is safe, and excluding it would
+/// leave an unlisted symlink invisible to both cleanup and drift detection
+/// forever. Whether a *listed* entry is actually usable — a real regular
+/// file, not a symlink — is a separate question, checked by
+/// `is_regular_file` / `verify_retained_sidecar`.
 fn existing_app_scripts(root: &std::path::Path) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
     for entry in fs::read_dir(root).with_context(|| format!("cannot read {}", root.display()))? {
         let entry = entry?;
-        // Only regular files can be sidecars: skip directories and symlinks so a
-        // lookalike never reaches remove_file (which would fail confusingly).
-        if !entry.file_type()?.is_file() {
+        if entry.file_type()?.is_dir() {
             continue;
         }
         let path = entry.path();
@@ -389,20 +396,30 @@ fn read_sidecar_manifest(root: &std::path::Path) -> Result<Vec<String>> {
 }
 
 /// Write `contents` to `path` via a same-directory temp file plus an atomic
-/// rename, rather than an in-place `fs::write`. Two reasons: a rename
+/// rename, rather than an in-place `fs::write`. Three reasons: a rename
 /// replaces whatever sits at `path` — file or symlink — as a single
-/// directory-entry swap, so it can never write through a symlink to an
-/// unrelated target; and a process killed mid-write leaves either the old
-/// file or the fully-written new one, never a half-written one. Used for
-/// every published artifact (the current sidecar, index.html, the
-/// manifest), so a reader never observes a partial version of any of them.
+/// directory-entry swap, so the *final* path can never be written through
+/// to an unrelated target; a process killed mid-write leaves either the old
+/// file or the fully-written new one, never a half-written one; and the
+/// temp path itself is created with `create_new`, which fails if anything —
+/// including a symlink planted at that predictable name — already exists
+/// there, rather than following it. Used for every published artifact (the
+/// current sidecar, index.html, the manifest), so a reader never observes a
+/// partial version of any of them.
 fn write_atomic(path: &std::path::Path, contents: &[u8]) -> Result<()> {
     let name = path
         .file_name()
         .and_then(|n| n.to_str())
         .with_context(|| format!("{} has no file name", path.display()))?;
     let tmp = path.with_file_name(format!("{name}.tmp.{}", std::process::id()));
-    fs::write(&tmp, contents).with_context(|| format!("cannot write {}", tmp.display()))?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .with_context(|| format!("cannot create {}", tmp.display()))?;
+    file.write_all(contents)
+        .with_context(|| format!("cannot write {}", tmp.display()))?;
+    drop(file);
     fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
@@ -475,7 +492,7 @@ mod tests {
     }
 
     #[test]
-    fn directories_and_symlinks_are_never_treated_as_sidecars() {
+    fn existing_app_scripts_skips_directories_but_includes_symlinks() {
         let root = temp_root("non-files");
         fs::create_dir(root.join("app.aaaaaaaaaaaa.js")).unwrap();
         fs::write(root.join("app.bbbbbbbbbbbb.js"), b"x").unwrap();
@@ -490,7 +507,13 @@ mod tests {
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
-        assert_eq!(found, vec!["app.bbbbbbbbbbbb.js"], "the directory and the symlink are both skipped");
+        // The directory is skipped (remove_file can't remove one); the
+        // symlink is a candidate like any regular file, so an unlisted one
+        // is actually reachable by cleanup and drift detection.
+        #[cfg(unix)]
+        assert_eq!(found, vec!["app.bbbbbbbbbbbb.js", "app.cccccccccccc.js"]);
+        #[cfg(not(unix))]
+        assert_eq!(found, vec!["app.bbbbbbbbbbbb.js"]);
 
         let _ = fs::remove_dir_all(&root);
     }
@@ -554,6 +577,31 @@ mod tests {
         assert_eq!(read_sidecar_manifest(&root).unwrap(), vec!["app.cccccccccccc.js"]);
 
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn write_atomic_refuses_to_write_through_a_pre_planted_temp_symlink() {
+        let root = temp_root("write-atomic-race");
+        let out = root.join("out.txt");
+
+        // Simulate an attacker (or leftover cruft) pre-placing a symlink at
+        // the exact temp path write_atomic is about to use, pointing
+        // somewhere it has no business touching.
+        let victim_dir = temp_root("write-atomic-victim");
+        let victim = victim_dir.join("victim.txt");
+        let tmp_path = root.join(format!("out.txt.tmp.{}", std::process::id()));
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&victim, &tmp_path).unwrap();
+
+            let err = write_atomic(&out, b"payload").unwrap_err();
+            assert!(err.to_string().contains("cannot create"));
+            assert!(!victim.exists(), "the symlink's target must never be written");
+            assert!(!out.exists(), "the real destination must not be created either");
+        }
+
+        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&victim_dir);
     }
 
     #[test]

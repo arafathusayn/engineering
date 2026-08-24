@@ -218,14 +218,24 @@ fn run() -> Result<ExitCode> {
             // the window and any stray file the manifest never knew about.
             let manifest = read_sidecar_manifest(&root)?;
             let manifest = advance_manifest(manifest, current);
-            // Refuse to proceed if a retained entry already resolves to a
-            // directory or symlink: existing_app_scripts's cleanup pass
-            // below only ever sees regular files, so a bogus retained entry
-            // would otherwise be left untouched, written into the manifest
-            // as if valid, and only surface as a failure on the next
-            // `--check` — fail here, before any output is written, instead.
+            // Refuse to proceed if a retained entry is unusable: a
+            // directory or symlink in its place, or (for a predecessor
+            // only — `current` is written fresh below, so absence there is
+            // fine) a file that has simply gone missing. Without this,
+            // existing_app_scripts's cleanup pass only ever sees regular
+            // files, so a bogus or vanished retained entry would be left
+            // untouched, written into the manifest as if valid, and only
+            // surface as a failure on the next `--check` — fail here,
+            // before any output is written, instead.
             for name in &manifest {
-                ensure_sidecar_path_is_writable(&root.join(name))?;
+                if name == current {
+                    ensure_sidecar_path_is_writable(&root.join(name))?;
+                } else if !is_regular_file(&root.join(name)) {
+                    bail!(
+                        "retained sidecar {name} in {SIDECAR_MANIFEST} is missing or not a \
+                         regular file; fix or remove it by hand before rebuilding"
+                    );
+                }
             }
             let keep: BTreeSet<&str> = manifest.iter().map(String::as_str).collect();
             for path in existing_app_scripts(&root)? {
@@ -290,9 +300,11 @@ fn is_regular_file(path: &std::path::Path) -> bool {
 }
 
 /// Refuse a sidecar path that already exists as something other than a
-/// regular file. An absent path is fine (build mode is about to create or
-/// has already created it); a directory or symlink standing in for it is
-/// not, whether it is the current asset or a retained predecessor.
+/// regular file. Only meaningful for the current build's own asset: an
+/// absent path is fine there (build mode is about to write it), whereas a
+/// directory or symlink standing in its place is not. A retained
+/// predecessor gets no such exemption — build mode never recreates one, so
+/// its absence is a hard error, checked separately with `is_regular_file`.
 fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_file() => Ok(()),

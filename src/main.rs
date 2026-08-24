@@ -27,7 +27,10 @@ enum Mode {
 /// cached index.html that references an older hash right after a new
 /// deploy lands; pruning that sidecar immediately would 404 the page's
 /// script until the HTML itself revalidates. Keeping a small trailing
-/// window covers that overlap without accumulating sidecars forever.
+/// window covers the common case (one deploy landing while a visitor's
+/// page is still cached) without accumulating sidecars forever. It is a
+/// fixed count, not a cache-lifetime guarantee: enough rapid successive
+/// content changes can still evict a sidecar a lingering cached page needs.
 const SIDECAR_RETENTION: usize = 3;
 
 /// Filename of the manifest recording sidecar deploy order, oldest first,
@@ -173,15 +176,17 @@ fn run() -> Result<ExitCode> {
                     manifest.len()
                 );
             }
-            // Every retained (non-current) sidecar the manifest lists must
-            // still exist as a regular file; content is unverifiable (its
-            // source is gone) but presence and shape are not. A directory
-            // or symlink standing in for it does not count.
+            // Every sidecar the manifest lists, current included, must be an
+            // actual regular file: a directory or symlink does not count,
+            // even for the current entry — read_to_string above follows a
+            // symlink, so without this check a symlink whose target happens
+            // to hold the right bytes would slip the content check too.
             for name in &manifest {
-                if name != current && !is_regular_file(&root.join(name)) {
+                if !is_regular_file(&root.join(name)) {
                     ok = false;
                     eprintln!(
-                        "FAIL: {name} is listed in {SIDECAR_MANIFEST} but missing from disk"
+                        "FAIL: {name} is listed in {SIDECAR_MANIFEST} but is missing or not \
+                         a regular file"
                     );
                 }
             }
@@ -213,6 +218,15 @@ fn run() -> Result<ExitCode> {
             // the window and any stray file the manifest never knew about.
             let manifest = read_sidecar_manifest(&root)?;
             let manifest = advance_manifest(manifest, current);
+            // Refuse to proceed if a retained entry already resolves to a
+            // directory or symlink: existing_app_scripts's cleanup pass
+            // below only ever sees regular files, so a bogus retained entry
+            // would otherwise be left untouched, written into the manifest
+            // as if valid, and only surface as a failure on the next
+            // `--check` — fail here, before any output is written, instead.
+            for name in &manifest {
+                ensure_sidecar_path_is_writable(&root.join(name))?;
+            }
             let keep: BTreeSet<&str> = manifest.iter().map(String::as_str).collect();
             for path in existing_app_scripts(&root)? {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
@@ -273,6 +287,19 @@ fn is_regular_file(path: &std::path::Path) -> bool {
     fs::symlink_metadata(path)
         .map(|m| m.file_type().is_file())
         .unwrap_or(false)
+}
+
+/// Refuse a sidecar path that already exists as something other than a
+/// regular file. An absent path is fine (build mode is about to create or
+/// has already created it); a directory or symlink standing in for it is
+/// not, whether it is the current asset or a retained predecessor.
+fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.file_type().is_file() => Ok(()),
+        Ok(_) => bail!("{} exists but is not a regular file", path.display()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("cannot stat {}", path.display())),
+    }
 }
 
 /// Read `SIDECAR_MANIFEST` as an ordered list of sidecar names, oldest
@@ -377,19 +404,24 @@ mod tests {
         let root = temp_root("non-files");
         fs::create_dir(root.join("app.aaaaaaaaaaaa.js")).unwrap();
         fs::write(root.join("app.bbbbbbbbbbbb.js"), b"x").unwrap();
+        #[cfg(unix)]
+        {
+            fs::write(root.join("real-target.js"), b"x").unwrap();
+            std::os::unix::fs::symlink(root.join("real-target.js"), root.join("app.cccccccccccc.js")).unwrap();
+        }
 
         let found: Vec<String> = existing_app_scripts(&root)
             .unwrap()
             .iter()
             .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
             .collect();
-        assert_eq!(found, vec!["app.bbbbbbbbbbbb.js"], "the directory is skipped");
+        assert_eq!(found, vec!["app.bbbbbbbbbbbb.js"], "the directory and the symlink are both skipped");
 
         let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn is_regular_file_rejects_directories_and_missing_paths() {
+    fn is_regular_file_rejects_directories_symlinks_and_missing_paths() {
         let root = temp_root("regular-file");
         fs::write(root.join("real.js"), b"x").unwrap();
         fs::create_dir(root.join("dir.js")).unwrap();
@@ -397,6 +429,33 @@ mod tests {
         assert!(is_regular_file(&root.join("real.js")));
         assert!(!is_regular_file(&root.join("dir.js")));
         assert!(!is_regular_file(&root.join("missing.js")));
+
+        #[cfg(unix)]
+        {
+            // A symlink whose target happens to hold matching bytes must
+            // still be rejected: it is not a deployable regular file.
+            std::os::unix::fs::symlink(root.join("real.js"), root.join("link.js")).unwrap();
+            assert!(!is_regular_file(&root.join("link.js")));
+        }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn ensure_sidecar_path_is_writable_allows_absent_and_regular_files_only() {
+        let root = temp_root("writable-guard");
+        fs::write(root.join("real.js"), b"x").unwrap();
+        fs::create_dir(root.join("dir.js")).unwrap();
+
+        assert!(ensure_sidecar_path_is_writable(&root.join("missing.js")).is_ok());
+        assert!(ensure_sidecar_path_is_writable(&root.join("real.js")).is_ok());
+        assert!(ensure_sidecar_path_is_writable(&root.join("dir.js")).is_err());
+
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(root.join("real.js"), root.join("link.js")).unwrap();
+            assert!(ensure_sidecar_path_is_writable(&root.join("link.js")).is_err());
+        }
 
         let _ = fs::remove_dir_all(&root);
     }

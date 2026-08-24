@@ -127,8 +127,9 @@ const HASH_LEN: usize = 12;
 
 /// FNV-1a 64 over the bytes, truncated to `HASH_LEN` hex digits — ample to flip
 /// the filename on any content change (this guards cache freshness, not against
-/// a motivated collision).
-fn content_hash(bytes: &[u8]) -> String {
+/// a motivated collision). Public so callers can verify a sidecar already on
+/// disk still hashes to the name it's filed under.
+pub fn content_hash(bytes: &[u8]) -> String {
     const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const PRIME: u64 = 0x0000_0100_0000_01b3;
     let mut hash = OFFSET;

@@ -176,18 +176,18 @@ fn run() -> Result<ExitCode> {
                     manifest.len()
                 );
             }
-            // Every sidecar the manifest lists, current included, must be an
-            // actual regular file: a directory or symlink does not count,
-            // even for the current entry — read_to_string above follows a
-            // symlink, so without this check a symlink whose target happens
-            // to hold the right bytes would slip the content check too.
+            // The current entry already got a stronger check above (its
+            // bytes against the freshly built output); every other listed
+            // sidecar gets the weaker check that's still possible once the
+            // original source is gone: is it a regular file whose bytes
+            // still hash to its own filename?
             for name in &manifest {
-                if !is_regular_file(&root.join(name)) {
+                if name == current {
+                    continue;
+                }
+                if let Err(e) = verify_retained_sidecar(&root.join(name), name) {
                     ok = false;
-                    eprintln!(
-                        "FAIL: {name} is listed in {SIDECAR_MANIFEST} but is missing or not \
-                         a regular file"
-                    );
+                    eprintln!("FAIL: {e:#}");
                 }
             }
             // Any sidecar-shaped file the manifest doesn't know about is
@@ -219,22 +219,25 @@ fn run() -> Result<ExitCode> {
             let manifest = read_sidecar_manifest(&root)?;
             let manifest = advance_manifest(manifest, current);
             // Refuse to proceed if a retained entry is unusable: a
-            // directory or symlink in its place, or (for a predecessor
-            // only — `current` is written fresh below, so absence there is
-            // fine) a file that has simply gone missing. Without this,
+            // directory or symlink in its place, content that no longer
+            // hashes to its own filename, or (for a predecessor only —
+            // `current` is written fresh below, so absence there is fine) a
+            // file that has simply gone missing. Without this,
             // existing_app_scripts's cleanup pass only ever sees regular
-            // files, so a bogus or vanished retained entry would be left
-            // untouched, written into the manifest as if valid, and only
-            // surface as a failure on the next `--check` — fail here,
-            // before any output is written, instead.
+            // files, so a bogus, corrupted, or vanished retained entry
+            // would be left untouched, written into the manifest as if
+            // valid, and only surface as a failure on the next `--check` —
+            // fail here, before any output is written, instead.
             for name in &manifest {
                 if name == current {
                     ensure_sidecar_path_is_writable(&root.join(name))?;
-                } else if !is_regular_file(&root.join(name)) {
-                    bail!(
-                        "retained sidecar {name} in {SIDECAR_MANIFEST} is missing or not a \
-                         regular file; fix or remove it by hand before rebuilding"
-                    );
+                } else {
+                    verify_retained_sidecar(&root.join(name), name).with_context(|| {
+                        format!(
+                            "retained sidecar {name} in {SIDECAR_MANIFEST} is unusable; fix \
+                             or remove it by hand before rebuilding"
+                        )
+                    })?;
                 }
             }
             // Publish before pruning: write the page, the current asset,
@@ -310,7 +313,8 @@ fn is_regular_file(path: &std::path::Path) -> bool {
 /// absent path is fine there (build mode is about to write it), whereas a
 /// directory or symlink standing in its place is not. A retained
 /// predecessor gets no such exemption — build mode never recreates one, so
-/// its absence is a hard error, checked separately with `is_regular_file`.
+/// its absence is a hard error, checked separately with
+/// `verify_retained_sidecar`.
 fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
     match fs::symlink_metadata(path) {
         Ok(m) if m.file_type().is_file() => Ok(()),
@@ -320,6 +324,34 @@ fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
     }
 }
 
+/// The hash portion of a sidecar filename (`app.<hash>.js`). The caller
+/// must already know `name` is sidecar-shaped (every manifest entry is,
+/// by construction — `read_sidecar_manifest` validates each one through
+/// `is_app_sidecar` before it's ever stored).
+fn sidecar_hash(name: &str) -> &str {
+    name.strip_prefix("app.")
+        .and_then(|s| s.strip_suffix(".js"))
+        .expect("caller guarantees name is sidecar-shaped")
+}
+
+/// Verify a retained predecessor: a regular file whose bytes still hash to
+/// the value embedded in its own name. This is the only integrity check
+/// available for a predecessor — its original source is gone, so there's
+/// nothing to compare its content against except itself. A mismatch means
+/// the file was corrupted or hand-edited after being written; either way, a
+/// browser holding a cached reference to this hash would silently receive
+/// the wrong script.
+fn verify_retained_sidecar(path: &std::path::Path, name: &str) -> Result<()> {
+    if !is_regular_file(path) {
+        bail!("{name} is missing or not a regular file");
+    }
+    let bytes = fs::read(path).with_context(|| format!("cannot read {}", path.display()))?;
+    if canon_builder::content_hash(&bytes) != sidecar_hash(name) {
+        bail!("{name}'s content no longer matches its own hash");
+    }
+    Ok(())
+}
+
 /// Read `SIDECAR_MANIFEST` as an ordered list of sidecar names, oldest
 /// first. A missing file (the very first build) is an empty history, not an
 /// error — but a symlink at that path is rejected outright, dangling or
@@ -327,9 +359,11 @@ fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
 /// silently read as "no manifest" instead of the corrupted state it is.
 /// Every line must be a validly shaped sidecar name and appear only once:
 /// the manifest is untrusted input the moment it can be hand-edited, and
-/// its entries end up as `root.join(name)` arguments to `remove_file`, so a
-/// malformed line (e.g. `../secret`) or a duplicate must never reach that
-/// call.
+/// its entries are joined to `root` for filesystem operations (existence,
+/// content, and regular-file checks) and compared for set membership during
+/// cleanup — an exact basename shape rules out path traversal
+/// (`../secret`), and a duplicate would make "which sidecar is retained"
+/// ambiguous.
 fn read_sidecar_manifest(root: &std::path::Path) -> Result<Vec<String>> {
     let path = root.join(SIDECAR_MANIFEST);
     let text = match fs::symlink_metadata(&path) {
@@ -532,6 +566,27 @@ mod tests {
             let err = read_sidecar_manifest(&root).unwrap_err();
             assert!(err.to_string().contains("symlink"));
         }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn verify_retained_sidecar_catches_corruption_and_absence() {
+        let root = temp_root("retained-integrity");
+        let content = b"console.log(1)";
+        let name = format!("app.{}.js", canon_builder::content_hash(content));
+        fs::write(root.join(&name), content).unwrap();
+        assert!(verify_retained_sidecar(&root.join(&name), &name).is_ok());
+
+        // Tamper with the bytes without renaming the file: the name's hash
+        // promise no longer holds.
+        fs::write(root.join(&name), b"console.log(2)").unwrap();
+        let err = verify_retained_sidecar(&root.join(&name), &name).unwrap_err();
+        assert!(err.to_string().contains("no longer matches"));
+
+        let missing = "app.000000000000.js";
+        let err = verify_retained_sidecar(&root.join(missing), missing).unwrap_err();
+        assert!(err.to_string().contains("missing or not a regular file"));
 
         let _ = fs::remove_dir_all(&root);
     }

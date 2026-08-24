@@ -240,19 +240,17 @@ fn run() -> Result<ExitCode> {
                     })?;
                 }
             }
-            // Publish before pruning: write the page, the current asset,
-            // and the manifest first. Only once all three are durable do we
-            // delete anything. If a write fails or the process is killed
-            // partway, nothing has been removed yet — a rerun sees the old,
-            // still-consistent state instead of a manifest that already
-            // claims a sidecar the cleanup pass deleted out from under it.
-            fs::write(&out, &built.html)
-                .with_context(|| format!("cannot write {}", out.display()))?;
+            // Publish before pruning, and in dependency order: the current
+            // sidecar first, then index.html (which references it), then
+            // the manifest. If a write fails or the process is killed
+            // partway, whatever's already published is self-consistent —
+            // index.html is never made visible ahead of the asset it
+            // names, and nothing has been deleted yet either way.
             for asset in &built.assets {
                 let path = root.join(&asset.name);
-                fs::write(&path, &asset.content)
-                    .with_context(|| format!("cannot write {}", path.display()))?;
+                write_atomic(&path, asset.content.as_bytes())?;
             }
+            write_atomic(&out, built.html.as_bytes())?;
             write_sidecar_manifest(&root, &manifest)?;
             let keep: BTreeSet<&str> = manifest.iter().map(String::as_str).collect();
             for path in existing_app_scripts(&root)? {
@@ -389,21 +387,30 @@ fn read_sidecar_manifest(root: &std::path::Path) -> Result<Vec<String>> {
     Ok(names)
 }
 
-/// Write the manifest via a same-directory temp file plus an atomic rename,
-/// rather than an in-place `fs::write`. Two reasons: a rename replaces
-/// whatever sits at `SIDECAR_MANIFEST` — file or symlink — as a single
+/// Write `contents` to `path` via a same-directory temp file plus an atomic
+/// rename, rather than an in-place `fs::write`. Two reasons: a rename
+/// replaces whatever sits at `path` — file or symlink — as a single
 /// directory-entry swap, so it can never write through a symlink to an
 /// unrelated target; and a process killed mid-write leaves either the old
-/// manifest or the fully-written new one, never a half-written file.
+/// file or the fully-written new one, never a half-written one. Used for
+/// every published artifact (the current sidecar, index.html, the
+/// manifest), so a reader never observes a partial version of any of them.
+fn write_atomic(path: &std::path::Path, contents: &[u8]) -> Result<()> {
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .with_context(|| format!("{} has no file name", path.display()))?;
+    let tmp = path.with_file_name(format!("{name}.tmp.{}", std::process::id()));
+    fs::write(&tmp, contents).with_context(|| format!("cannot write {}", tmp.display()))?;
+    fs::rename(&tmp, path).with_context(|| format!("cannot replace {}", path.display()))
+}
+
 fn write_sidecar_manifest(root: &std::path::Path, names: &[String]) -> Result<()> {
-    let path = root.join(SIDECAR_MANIFEST);
-    let tmp = root.join(format!("{SIDECAR_MANIFEST}.tmp.{}", std::process::id()));
     let mut text = names.join("\n");
     if !text.is_empty() {
         text.push('\n');
     }
-    fs::write(&tmp, text).with_context(|| format!("cannot write {}", tmp.display()))?;
-    fs::rename(&tmp, &path).with_context(|| format!("cannot replace {}", path.display()))
+    write_atomic(&root.join(SIDECAR_MANIFEST), text.as_bytes())
 }
 
 /// Advance `names` (oldest first) to end with `current`: drop any earlier

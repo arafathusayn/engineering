@@ -176,15 +176,16 @@ fn run() -> Result<ExitCode> {
                     manifest.len()
                 );
             }
-            // The current entry already got a stronger check above (its
-            // bytes against the freshly built output); every other listed
-            // sidecar gets the weaker check that's still possible once the
-            // original source is gone: is it a regular file whose bytes
-            // still hash to its own filename?
+            // Every listed sidecar must be a regular file whose bytes still
+            // hash to its own filename. For `current` this is redundant
+            // with the byte-for-byte check against the fresh build above —
+            // its filename's hash is derived from those exact bytes by
+            // construction — but skipping it isn't a shortcut, it's a hole:
+            // `read_to_string` above follows a symlink, so without this
+            // check too, a symlinked current entry whose target happens to
+            // hold matching bytes would pass despite not being a regular
+            // file at all.
             for name in &manifest {
-                if name == current {
-                    continue;
-                }
                 if let Err(e) = verify_retained_sidecar(&root.join(name), name) {
                     ok = false;
                     eprintln!("FAIL: {e:#}");

@@ -22,6 +22,15 @@ enum Mode {
     SourceHash,
 }
 
+/// How many deploys' worth of `app.<hash>.js` sidecars to keep on disk: the
+/// current build's own asset plus this many of the most recent superseded
+/// ones. A CDN or browser can still be serving a cached index.html that
+/// references an older hash after a new deploy lands; pruning that sidecar
+/// immediately would 404 the page's script until the HTML itself revalidates.
+/// Keeping a small trailing window covers that overlap without accumulating
+/// sidecars forever.
+const SIDECAR_RETENTION: usize = 3;
+
 fn main() -> ExitCode {
     match run() {
         Ok(code) => code,
@@ -99,6 +108,7 @@ fn run() -> Result<ExitCode> {
     }
 
     let out = canon_builder::output_path(&root);
+    let expected: BTreeSet<&str> = built.assets.iter().map(|a| a.name.as_str()).collect();
     match mode {
         Mode::Check => {
             let mut ok = true;
@@ -117,8 +127,6 @@ fn run() -> Result<ExitCode> {
                 );
             }
             // Every content-hashed sidecar must be present and byte-identical.
-            let expected: BTreeSet<&str> =
-                built.assets.iter().map(|a| a.name.as_str()).collect();
             for asset in &built.assets {
                 match fs::read_to_string(root.join(&asset.name)) {
                     Ok(content) if content == asset.content => {}
@@ -132,13 +140,15 @@ fn run() -> Result<ExitCode> {
                     }
                 }
             }
-            // A sidecar from an earlier hash must never linger in the deploy.
-            for path in existing_app_scripts(&root)? {
+            // A sidecar may outlive its deploy for the retention window (see
+            // SIDECAR_RETENTION); only one that has aged out is a failure.
+            for path in sidecars_beyond_retention(&root, &expected)? {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-                if !expected.contains(name) {
-                    ok = false;
-                    eprintln!("FAIL: stale sidecar {name} present; run the builder to remove it");
-                }
+                ok = false;
+                eprintln!(
+                    "FAIL: sidecar {name} is beyond the {SIDECAR_RETENTION}-deploy retention \
+                     window; run the builder to prune it"
+                );
             }
             if ok {
                 println!("ok: index.html and its sidecars match the canon.toon build output");
@@ -148,10 +158,10 @@ fn run() -> Result<ExitCode> {
             }
         }
         _ => {
-            // Refresh the content-hashed sidecars: drop any previous app.*.js
-            // (a stale hash would otherwise ship forever) before writing the
-            // current set, so the deploy holds exactly one app.<hash>.js.
-            for stale in existing_app_scripts(&root)? {
+            // Prune only the sidecars that have aged out of the retention
+            // window (see SIDECAR_RETENTION); recent superseded ones are left
+            // in place so a cached HTML page can still fetch its script.
+            for stale in sidecars_beyond_retention(&root, &expected)? {
                 fs::remove_file(&stale)
                     .with_context(|| format!("cannot remove {}", stale.display()))?;
             }
@@ -196,4 +206,121 @@ fn existing_app_scripts(root: &std::path::Path) -> Result<Vec<PathBuf>> {
     }
     found.sort();
     Ok(found)
+}
+
+/// Sidecars not in `expected` (the current build's own asset names), ordered
+/// newest-first by mtime, with the newest `SIDECAR_RETENTION - 1` dropped —
+/// those are within the retention window and still fair game for a cached
+/// index.html to reference. What remains is old enough to prune.
+fn sidecars_beyond_retention(
+    root: &std::path::Path,
+    expected: &BTreeSet<&str>,
+) -> Result<Vec<PathBuf>> {
+    let mut superseded: Vec<(PathBuf, std::time::SystemTime)> = Vec::new();
+    for path in existing_app_scripts(root)? {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if expected.contains(name) {
+            continue;
+        }
+        let modified = fs::metadata(&path)
+            .with_context(|| format!("cannot stat {}", path.display()))?
+            .modified()
+            .with_context(|| format!("no mtime for {}", path.display()))?;
+        superseded.push((path, modified));
+    }
+    superseded.sort_by_key(|(_, modified)| std::cmp::Reverse(*modified));
+    Ok(superseded
+        .into_iter()
+        .skip(SIDECAR_RETENTION.saturating_sub(1))
+        .map(|(path, _)| path)
+        .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::OpenOptions;
+    use std::time::{Duration, SystemTime};
+
+    fn temp_root(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "canon-builder-test-{name}-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Create `path` and back-date its mtime by `age_secs`, so ordering by
+    /// mtime is deterministic regardless of how fast the test runs.
+    fn touch(path: &std::path::Path, age_secs: u64) {
+        fs::write(path, b"x").unwrap();
+        let stamp = SystemTime::now() - Duration::from_secs(age_secs);
+        OpenOptions::new()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_modified(stamp)
+            .unwrap();
+    }
+
+    #[test]
+    fn retention_keeps_the_newest_superseded_sidecars_and_flags_the_rest() {
+        let root = temp_root("beyond-window");
+        touch(&root.join("app.aaaaaaaaaaaa.js"), 400); // oldest
+        touch(&root.join("app.bbbbbbbbbbbb.js"), 300);
+        touch(&root.join("app.cccccccccccc.js"), 200);
+        touch(&root.join("app.dddddddddddd.js"), 100); // newest superseded
+        touch(&root.join("app.eeeeeeeeeeee.js"), 0); // the current build's own asset
+
+        let expected: BTreeSet<&str> = ["app.eeeeeeeeeeee.js"].into_iter().collect();
+        let names: Vec<String> = sidecars_beyond_retention(&root, &expected)
+            .unwrap()
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+
+        // SIDECAR_RETENTION = 3 keeps the current asset plus its 2 newest
+        // superseded predecessors (d, c); only the 2 oldest (b, a) age out.
+        assert_eq!(names, vec!["app.bbbbbbbbbbbb.js", "app.aaaaaaaaaaaa.js"]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn nothing_is_pruned_within_the_retention_window() {
+        let root = temp_root("within-window");
+        touch(&root.join("app.aaaaaaaaaaaa.js"), 20);
+        touch(&root.join("app.bbbbbbbbbbbb.js"), 10);
+        touch(&root.join("app.cccccccccccc.js"), 0);
+
+        let expected: BTreeSet<&str> = ["app.cccccccccccc.js"].into_iter().collect();
+        assert!(
+            sidecars_beyond_retention(&root, &expected)
+                .unwrap()
+                .is_empty()
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn directories_and_symlinks_are_never_treated_as_sidecars() {
+        let root = temp_root("non-files");
+        fs::create_dir(root.join("app.aaaaaaaaaaaa.js")).unwrap();
+        touch(&root.join("app.bbbbbbbbbbbb.js"), 0);
+
+        let expected: BTreeSet<&str> = BTreeSet::new();
+        let names: Vec<String> = sidecars_beyond_retention(&root, &expected)
+            .unwrap()
+            .iter()
+            .map(|p| p.file_name().unwrap().to_str().unwrap().to_string())
+            .collect();
+        // Only the regular file is a candidate; with SIDECAR_RETENTION = 3 and
+        // just one superseded sidecar, nothing is beyond the window yet.
+        assert!(names.is_empty());
+
+        let _ = fs::remove_dir_all(&root);
+    }
 }

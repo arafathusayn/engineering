@@ -237,14 +237,12 @@ fn run() -> Result<ExitCode> {
                     );
                 }
             }
-            let keep: BTreeSet<&str> = manifest.iter().map(String::as_str).collect();
-            for path in existing_app_scripts(&root)? {
-                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-                if !keep.contains(name) {
-                    fs::remove_file(&path)
-                        .with_context(|| format!("cannot remove {}", path.display()))?;
-                }
-            }
+            // Publish before pruning: write the page, the current asset,
+            // and the manifest first. Only once all three are durable do we
+            // delete anything. If a write fails or the process is killed
+            // partway, nothing has been removed yet — a rerun sees the old,
+            // still-consistent state instead of a manifest that already
+            // claims a sidecar the cleanup pass deleted out from under it.
             fs::write(&out, &built.html)
                 .with_context(|| format!("cannot write {}", out.display()))?;
             for asset in &built.assets {
@@ -253,6 +251,14 @@ fn run() -> Result<ExitCode> {
                     .with_context(|| format!("cannot write {}", path.display()))?;
             }
             write_sidecar_manifest(&root, &manifest)?;
+            let keep: BTreeSet<&str> = manifest.iter().map(String::as_str).collect();
+            for path in existing_app_scripts(&root)? {
+                let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+                if !keep.contains(name) {
+                    fs::remove_file(&path)
+                        .with_context(|| format!("cannot remove {}", path.display()))?;
+                }
+            }
             let names: Vec<&str> = built.assets.iter().map(|a| a.name.as_str()).collect();
             println!(
                 "built index.html ({} bytes, minified) + [{}] from {} cards, {} categories, \
@@ -316,17 +322,24 @@ fn ensure_sidecar_path_is_writable(path: &std::path::Path) -> Result<()> {
 
 /// Read `SIDECAR_MANIFEST` as an ordered list of sidecar names, oldest
 /// first. A missing file (the very first build) is an empty history, not an
-/// error. Every line must be a validly shaped sidecar name and appear only
-/// once: the manifest is untrusted input the moment it can be hand-edited,
-/// and its entries end up as `root.join(name)` arguments to `remove_file`,
-/// so a malformed line (e.g. `../secret`) or a duplicate must never reach
-/// that call.
+/// error — but a symlink at that path is rejected outright, dangling or
+/// not: `read_to_string` follows it, so a dangling symlink would otherwise
+/// silently read as "no manifest" instead of the corrupted state it is.
+/// Every line must be a validly shaped sidecar name and appear only once:
+/// the manifest is untrusted input the moment it can be hand-edited, and
+/// its entries end up as `root.join(name)` arguments to `remove_file`, so a
+/// malformed line (e.g. `../secret`) or a duplicate must never reach that
+/// call.
 fn read_sidecar_manifest(root: &std::path::Path) -> Result<Vec<String>> {
     let path = root.join(SIDECAR_MANIFEST);
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
+    let text = match fs::symlink_metadata(&path) {
+        Ok(m) if m.file_type().is_symlink() => {
+            bail!("{SIDECAR_MANIFEST} is a symlink; remove it by hand before rebuilding")
+        }
+        Ok(_) => fs::read_to_string(&path)
+            .with_context(|| format!("cannot read {}", path.display()))?,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+        Err(e) => return Err(e).with_context(|| format!("cannot stat {}", path.display())),
     };
     let mut seen = BTreeSet::new();
     let mut names = Vec::new();
@@ -342,13 +355,21 @@ fn read_sidecar_manifest(root: &std::path::Path) -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// Write the manifest via a same-directory temp file plus an atomic rename,
+/// rather than an in-place `fs::write`. Two reasons: a rename replaces
+/// whatever sits at `SIDECAR_MANIFEST` — file or symlink — as a single
+/// directory-entry swap, so it can never write through a symlink to an
+/// unrelated target; and a process killed mid-write leaves either the old
+/// manifest or the fully-written new one, never a half-written file.
 fn write_sidecar_manifest(root: &std::path::Path, names: &[String]) -> Result<()> {
     let path = root.join(SIDECAR_MANIFEST);
+    let tmp = root.join(format!("{SIDECAR_MANIFEST}.tmp.{}", std::process::id()));
     let mut text = names.join("\n");
     if !text.is_empty() {
         text.push('\n');
     }
-    fs::write(&path, text).with_context(|| format!("cannot write {}", path.display()))
+    fs::write(&tmp, text).with_context(|| format!("cannot write {}", tmp.display()))?;
+    fs::rename(&tmp, &path).with_context(|| format!("cannot replace {}", path.display()))
 }
 
 /// Advance `names` (oldest first) to end with `current`: drop any earlier
@@ -467,6 +488,49 @@ mod tests {
         {
             std::os::unix::fs::symlink(root.join("real.js"), root.join("link.js")).unwrap();
             assert!(ensure_sidecar_path_is_writable(&root.join("link.js")).is_err());
+        }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn write_sidecar_manifest_round_trips_and_leaves_no_temp_file_behind() {
+        let root = temp_root("manifest-write");
+        let names = vec!["app.aaaaaaaaaaaa.js".to_string(), "app.bbbbbbbbbbbb.js".to_string()];
+
+        write_sidecar_manifest(&root, &names).unwrap();
+        assert_eq!(read_sidecar_manifest(&root).unwrap(), names);
+        let leftovers: Vec<String> = fs::read_dir(&root)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_str().unwrap().to_string())
+            .filter(|n| n != SIDECAR_MANIFEST)
+            .collect();
+        assert!(leftovers.is_empty(), "no .tmp file should survive a successful write: {leftovers:?}");
+
+        // A second write (simulating a later build) replaces it cleanly.
+        write_sidecar_manifest(&root, &["app.cccccccccccc.js".to_string()]).unwrap();
+        assert_eq!(read_sidecar_manifest(&root).unwrap(), vec!["app.cccccccccccc.js"]);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn manifest_read_rejects_a_symlink_dangling_or_not() {
+        let root = temp_root("manifest-symlink");
+        #[cfg(unix)]
+        {
+            // Dangling: read_to_string would see NotFound and silently read
+            // this as "no manifest" without the explicit symlink check.
+            std::os::unix::fs::symlink(root.join("nowhere"), root.join(SIDECAR_MANIFEST)).unwrap();
+            let err = read_sidecar_manifest(&root).unwrap_err();
+            assert!(err.to_string().contains("symlink"));
+
+            // Pointing at real content doesn't change the verdict either.
+            fs::write(root.join("real-manifest"), "app.aaaaaaaaaaaa.js\n").unwrap();
+            fs::remove_file(root.join(SIDECAR_MANIFEST)).unwrap();
+            std::os::unix::fs::symlink(root.join("real-manifest"), root.join(SIDECAR_MANIFEST)).unwrap();
+            let err = read_sidecar_manifest(&root).unwrap_err();
+            assert!(err.to_string().contains("symlink"));
         }
 
         let _ = fs::remove_dir_all(&root);
